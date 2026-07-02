@@ -1,0 +1,17 @@
+# Validation-only workflow placeholder.
+# This workflow must not deploy, access servers, or run deployment tooling.
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Validate repository structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm validation placeholder
+        run: echo "Validation placeholder only. No deployment actions are performed."
