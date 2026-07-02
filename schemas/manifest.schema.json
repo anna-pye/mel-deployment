@@ -15,6 +15,9 @@
     "name": {
       "type": "string"
     },
+    "deployment_id": {
+      "type": "string"
+    },
     "repository": {
       "type": "object",
       "required": [
@@ -27,11 +30,34 @@
         },
         "root": {
           "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        }
+      }
+    },
+    "environment": {
+      "type": "string"
+    },
+    "release": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "type": "string"
+        },
+        "identifier": {
+          "type": "string"
         }
       }
     },
     "paths": {
       "type": "object"
+    },
+    "validation_profile": {
+      "type": "string"
     }
   }
 }

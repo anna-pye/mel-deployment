@@ -16,13 +16,15 @@ mel_usage() {
   cat <<'EOF'
 Usage:
   mel validate [--manifest FILE] [--schema FILE]
+  mel resolve [--manifest FILE] [--schema FILE] [--output FILE] [--pretty]
   mel info
   mel version
 
 Commands:
   validate  Validate manifest, schema, paths, and repository metadata.
-  info      Print local validation engine metadata.
-  version   Print the validation engine version.
+  resolve   Convert a validated manifest into a canonical deployment model.
+  info      Print local engine metadata.
+  version   Print the engine version.
 EOF
 }
 

@@ -1,8 +1,8 @@
 # mel-deployment
 
-mel-deployment is the local validation foundation for a future deployment framework.
+mel-deployment is the local validation and resolution foundation for a future deployment framework.
 
-The current implementation provides a reusable validation engine only. It does not deploy, roll back, connect to servers, run SSH, run rsync, run Composer, run Drush, modify remote filesystems, or perform release orchestration.
+The current implementation validates manifests and resolves validated manifests into canonical deployment models. It does not deploy, roll back, connect to servers, run SSH, run rsync, run Composer, run Drush, modify remote filesystems, or perform release orchestration.
 
 ## Command Interface
 
@@ -10,11 +10,12 @@ Use the single executable:
 
 ```bash
 deploy/bin/mel validate
+deploy/bin/mel resolve --manifest examples/hold-production.yml
 deploy/bin/mel info
 deploy/bin/mel version
 ```
 
-The framework is designed to scale through subcommands. Do not add separate binaries such as `mel-validate` or `mel-info`.
+The framework is designed to scale through subcommands. Do not add separate binaries such as `mel-validate`, `mel-resolve`, or `mel-info`.
 
 ## Validation Scope
 
@@ -28,6 +29,30 @@ The framework is designed to scale through subcommands. Do not add separate bina
 
 Path validation rejects empty paths, relative paths, parent-directory traversal, duplicate separators, and `/`. It does not validate server path existence.
 
+## Resolution Scope
+
+`mel resolve` performs:
+
+- validation through the existing validation engine
+- documented default application
+- canonical path alias resolution
+- conflict and ambiguity detection
+- deterministic formatted JSON output
+
+The resolution flow is:
+
+```text
+Manifest
+    ↓
+Validation
+    ↓
+Resolution
+    ↓
+Canonical Deployment Model
+```
+
+See `docs/resolution-engine.md` for supported defaults and rejection rules.
+
 ## Exit Codes
 
 - `0` indicates `success`.
@@ -38,8 +63,9 @@ Path validation rejects empty paths, relative paths, parent-directory traversal,
 
 - `.github/workflows/` contains validation-only GitHub Actions workflows.
 - `deploy/bin/mel` is the single command entrypoint.
-- `deploy/lib/` contains reusable shell validation libraries.
+- `deploy/lib/` contains reusable shell validation and resolution libraries.
 - `docs/` contains architecture and operational model documentation.
+- `examples/` contains local example manifests and resolved models.
 - `manifests/` contains the default local validation manifest.
 - `schemas/` contains the bundled manifest schema.
 - `tests/` contains deterministic local unit tests.
@@ -53,6 +79,7 @@ bash -n deploy/lib/*.sh
 bash -n deploy/bin/*
 bash tests/run-tests.sh
 deploy/bin/mel validate
+deploy/bin/mel resolve --manifest examples/hold-production.yml
 ```
 
 Version: `0.1.0-dev`

@@ -17,6 +17,8 @@ export MEL_ROOT
 . "${MEL_DEPLOY_DIR}/lib/schema.sh"
 # shellcheck source=../lib/manifest.sh
 . "${MEL_DEPLOY_DIR}/lib/manifest.sh"
+# shellcheck source=../lib/resolver.sh
+. "${MEL_DEPLOY_DIR}/lib/resolver.sh"
 # shellcheck source=../lib/common.sh
 . "${MEL_DEPLOY_DIR}/lib/common.sh"
 
@@ -66,6 +68,75 @@ mel_command_validate() {
   return "$MEL_EXIT_SUCCESS"
 }
 
+mel_command_resolve() {
+  local manifest_file
+  local schema_file
+  local output_file=""
+  local resolved_model
+
+  manifest_file="$(mel_manifest_default_file)"
+  schema_file="$(mel_manifest_default_schema)"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --manifest)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--manifest requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        manifest_file="$2"
+        shift 2
+        ;;
+      --schema)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--schema requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        schema_file="$2"
+        shift 2
+        ;;
+      --output)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--output requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        output_file="$2"
+        shift 2
+        ;;
+      --pretty)
+        shift
+        ;;
+      --help|-h)
+        mel_usage
+        return "$MEL_EXIT_SUCCESS"
+        ;;
+      *)
+        mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "unknown resolve option: $1"
+        return "$MEL_EXIT_ERROR"
+        ;;
+    esac
+  done
+
+  mel_validate_repository_metadata || return "$?"
+  mel_manifest_validate "$manifest_file" "$schema_file" || return "$?"
+
+  if ! resolved_model="$(mel_resolver_build_model "$manifest_file")"; then
+    mel_output_error "$MEL_CODE_RESOLUTION_INVALID" "$resolved_model"
+    return "$MEL_EXIT_ERROR"
+  fi
+
+  if [[ -n "$output_file" ]]; then
+    mel_resolver_write_output "$output_file" "$resolved_model" || return "$?"
+    mel_output_success "$MEL_CODE_OK" "resolution written"
+    mel_output_detail "manifest" "$manifest_file"
+    mel_output_detail "output" "$output_file"
+    return "$MEL_EXIT_SUCCESS"
+  fi
+
+  printf '%s\n' "$resolved_model"
+  return "$MEL_EXIT_SUCCESS"
+}
+
 mel_command_info() {
   local version
   local version_status
@@ -79,7 +150,7 @@ mel_command_info() {
     return "$MEL_EXIT_WARNING"
   fi
 
-  mel_output_success "$MEL_CODE_OK" "mel validation engine"
+  mel_output_success "$MEL_CODE_OK" "mel validation and resolution engine"
   mel_output_detail "version" "$version"
   mel_output_detail "repository" "$MEL_ROOT"
   mel_output_detail "entrypoint" "${MEL_DEPLOY_DIR}/bin/mel"
@@ -111,6 +182,10 @@ main() {
     validate)
       shift
       mel_command_validate "$@"
+      ;;
+    resolve)
+      shift
+      mel_command_resolve "$@"
       ;;
     info)
       shift

@@ -26,3 +26,6 @@ jobs:
 
       - name: Validate manifest schema
         run: deploy/bin/mel validate
+
+      - name: Resolve example manifest
+        run: deploy/bin/mel resolve --manifest examples/hold-production.yml

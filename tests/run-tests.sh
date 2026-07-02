@@ -2,7 +2,8 @@
 set -u
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-TEST_DIR="${ROOT_DIR}/tests/validation"
+VALIDATION_TEST_DIR="${ROOT_DIR}/tests/validation"
+RESOLVER_TEST_DIR="${ROOT_DIR}/tests/resolver"
 MEL="${ROOT_DIR}/deploy/bin/mel"
 
 PASS_COUNT=0
@@ -43,6 +44,23 @@ assert_contains() {
   fi
 }
 
+assert_file_equals() {
+  local name="$1"
+  local expected_file="$2"
+  local actual_file="$3"
+  local expected
+  local actual
+
+  expected="$(<"$expected_file")"
+  actual="$(<"$actual_file")"
+
+  if [[ "$actual" == "$expected" ]]; then
+    pass "$name"
+  else
+    fail "$name" "resolved JSON did not match ${expected_file}"
+  fi
+}
+
 run_command() {
   local output_file="$1"
   shift
@@ -51,11 +69,11 @@ run_command() {
 }
 
 test_valid_manifest() {
-  local output_file="${TEST_DIR}/.valid.out"
+  local output_file="${VALIDATION_TEST_DIR}/.valid.out"
   local status
   local output
 
-  run_command "$output_file" "$MEL" validate --manifest "${TEST_DIR}/fixtures/valid-manifest.json"
+  run_command "$output_file" "$MEL" validate --manifest "${VALIDATION_TEST_DIR}/fixtures/valid-manifest.json"
   status=$?
   output="$(<"$output_file")"
 
@@ -64,11 +82,11 @@ test_valid_manifest() {
 }
 
 test_invalid_manifest() {
-  local output_file="${TEST_DIR}/.invalid-manifest.out"
+  local output_file="${VALIDATION_TEST_DIR}/.invalid-manifest.out"
   local status
   local output
 
-  run_command "$output_file" "$MEL" validate --manifest "${TEST_DIR}/fixtures/invalid-manifest.json"
+  run_command "$output_file" "$MEL" validate --manifest "${VALIDATION_TEST_DIR}/fixtures/invalid-manifest.json"
   status=$?
   output="$(<"$output_file")"
 
@@ -77,11 +95,11 @@ test_invalid_manifest() {
 }
 
 test_invalid_path() {
-  local output_file="${TEST_DIR}/.invalid-path.out"
+  local output_file="${VALIDATION_TEST_DIR}/.invalid-path.out"
   local status
   local output
 
-  run_command "$output_file" "$MEL" validate --manifest "${TEST_DIR}/fixtures/invalid-path.json"
+  run_command "$output_file" "$MEL" validate --manifest "${VALIDATION_TEST_DIR}/fixtures/invalid-path.json"
   status=$?
   output="$(<"$output_file")"
 
@@ -90,11 +108,11 @@ test_invalid_path() {
 }
 
 test_malformed_schema() {
-  local output_file="${TEST_DIR}/.malformed-schema.out"
+  local output_file="${VALIDATION_TEST_DIR}/.malformed-schema.out"
   local status
   local output
 
-  run_command "$output_file" "$MEL" validate --manifest "${TEST_DIR}/fixtures/valid-manifest.json" --schema "${TEST_DIR}/fixtures/malformed-schema.json"
+  run_command "$output_file" "$MEL" validate --manifest "${VALIDATION_TEST_DIR}/fixtures/valid-manifest.json" --schema "${VALIDATION_TEST_DIR}/fixtures/malformed-schema.json"
   status=$?
   output="$(<"$output_file")"
 
@@ -103,7 +121,7 @@ test_malformed_schema() {
 }
 
 test_cli_exit_codes() {
-  local output_file="${TEST_DIR}/.cli-exit.out"
+  local output_file="${VALIDATION_TEST_DIR}/.cli-exit.out"
   local status
   local output
 
@@ -116,7 +134,7 @@ test_cli_exit_codes() {
 }
 
 test_version() {
-  local output_file="${TEST_DIR}/.version.out"
+  local output_file="${VALIDATION_TEST_DIR}/.version.out"
   local status
   local output
 
@@ -129,7 +147,7 @@ test_version() {
 }
 
 test_info() {
-  local output_file="${TEST_DIR}/.info.out"
+  local output_file="${VALIDATION_TEST_DIR}/.info.out"
   local status
   local output
 
@@ -138,12 +156,116 @@ test_info() {
   output="$(<"$output_file")"
 
   assert_exit "mel info exits success" 0 "$status"
-  assert_contains "mel info reports validation engine" "$output" "mel validation engine"
+  assert_contains "mel info reports engine" "$output" "mel validation and resolution engine"
   assert_contains "mel info reports repository" "$output" "repository:"
 }
 
+test_successful_resolution() {
+  local output_file="${RESOLVER_TEST_DIR}/.success.out"
+  local status
+
+  run_command "$output_file" "$MEL" resolve --manifest "${RESOLVER_TEST_DIR}/fixtures/success-manifest.json"
+  status=$?
+
+  assert_exit "resolver exits success" 0 "$status"
+  assert_file_equals "resolver produces stable JSON" "${RESOLVER_TEST_DIR}/fixtures/expected-success.json" "$output_file"
+}
+
+test_default_resolution() {
+  local output_file="${RESOLVER_TEST_DIR}/.defaults.out"
+  local status
+
+  run_command "$output_file" "$MEL" resolve --manifest "${RESOLVER_TEST_DIR}/fixtures/defaults-manifest.json"
+  status=$?
+
+  assert_exit "resolver applies documented defaults" 0 "$status"
+  assert_file_equals "resolver default output is canonical" "${RESOLVER_TEST_DIR}/fixtures/expected-success.json" "$output_file"
+}
+
+test_missing_required_values() {
+  local output_file="${RESOLVER_TEST_DIR}/.missing-required.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" resolve --manifest "${RESOLVER_TEST_DIR}/fixtures/missing-required.json"
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "resolver rejects missing required values" 2 "$status"
+  assert_contains "resolver reports missing repository URL" "$output" "[error] MEL_RESOLUTION_INVALID: manifest.repository.url is required"
+}
+
+test_conflicting_configuration() {
+  local output_file="${RESOLVER_TEST_DIR}/.conflicting-paths.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" resolve --manifest "${RESOLVER_TEST_DIR}/fixtures/conflicting-paths.json"
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "resolver rejects conflicting configuration" 2 "$status"
+  assert_contains "resolver reports conflicting paths" "$output" "[error] MEL_RESOLUTION_INVALID: conflicting path definitions"
+}
+
+test_duplicate_deployment_ids() {
+  local output_file="${RESOLVER_TEST_DIR}/.duplicate-deployment-ids.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" resolve --manifest "${RESOLVER_TEST_DIR}/fixtures/duplicate-deployment-ids.json"
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "resolver rejects duplicate deployment IDs" 2 "$status"
+  assert_contains "resolver reports duplicate deployment ID" "$output" "[error] MEL_RESOLUTION_INVALID: duplicate deployment identifier: hold-production"
+}
+
+test_unsupported_environment() {
+  local output_file="${RESOLVER_TEST_DIR}/.unsupported-environment.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" resolve --manifest "${RESOLVER_TEST_DIR}/fixtures/unsupported-environment.json"
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "resolver rejects unsupported environments" 2 "$status"
+  assert_contains "resolver reports unsupported environment" "$output" "[error] MEL_RESOLUTION_INVALID: unsupported environment: prod"
+}
+
+test_unsupported_release_strategy() {
+  local output_file="${RESOLVER_TEST_DIR}/.unsupported-release-strategy.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" resolve --manifest "${RESOLVER_TEST_DIR}/fixtures/unsupported-release-strategy.json"
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "resolver rejects unsupported release strategies" 2 "$status"
+  assert_contains "resolver reports unsupported release strategy" "$output" "[error] MEL_RESOLUTION_INVALID: unsupported release strategy: latest"
+}
+
+test_output_option() {
+  local output_file="${RESOLVER_TEST_DIR}/.output-option.out"
+  local resolved_file="${RESOLVER_TEST_DIR}/.resolved.json"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" resolve --manifest "${RESOLVER_TEST_DIR}/fixtures/success-manifest.json" --output "$resolved_file"
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "resolver output option exits success" 0 "$status"
+  assert_contains "resolver output option reports success" "$output" "[success] MEL_OK: resolution written"
+  assert_file_equals "resolver output file is stable JSON" "${RESOLVER_TEST_DIR}/fixtures/expected-success.json" "$resolved_file"
+}
+
 cleanup() {
-  rm -f "${TEST_DIR}"/.*.out
+  rm -f "${VALIDATION_TEST_DIR}"/.*.out
+  rm -f "${RESOLVER_TEST_DIR}"/.*.out
+  rm -f "${RESOLVER_TEST_DIR}"/.resolved.json
 }
 
 cleanup
@@ -154,6 +276,14 @@ test_malformed_schema
 test_cli_exit_codes
 test_version
 test_info
+test_successful_resolution
+test_default_resolution
+test_missing_required_values
+test_conflicting_configuration
+test_duplicate_deployment_ids
+test_unsupported_environment
+test_unsupported_release_strategy
+test_output_option
 cleanup
 
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
