@@ -1,0 +1,13 @@
+{
+  "schema": "mel-deployment.manifest.v1",
+  "name": "mel-deployment",
+  "repository": {
+    "name": "mel-deployment",
+    "root": "/opt/mel-deployment"
+  },
+  "paths": {
+    "current": "/opt/mel-deployment/current",
+    "releases": "/opt/mel-deployment/releases",
+    "shared": "/opt/mel-deployment/shared"
+  }
+}

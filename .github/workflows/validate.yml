@@ -1,4 +1,4 @@
-# Validation-only workflow placeholder.
+# Validation-only workflow.
 # This workflow must not deploy, access servers, or run deployment tooling.
 name: Validate
 
@@ -10,8 +10,19 @@ on:
 
 jobs:
   validate:
-    name: Validate repository structure
+    name: Validate repository
     runs-on: ubuntu-latest
     steps:
-      - name: Confirm validation placeholder
-        run: echo "Validation placeholder only. No deployment actions are performed."
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check shell syntax
+        run: |
+          bash -n deploy/lib/*.sh
+          bash -n deploy/bin/*
+
+      - name: Run unit tests
+        run: bash tests/run-tests.sh
+
+      - name: Validate manifest schema
+        run: deploy/bin/mel validate

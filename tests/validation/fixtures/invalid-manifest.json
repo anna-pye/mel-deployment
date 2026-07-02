@@ -1,0 +1,7 @@
+{
+  "schema": "mel-deployment.manifest.v1",
+  "name": "invalid-manifest",
+  "paths": {
+    "current": "/srv/mel/current"
+  }
+}

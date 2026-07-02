@@ -1,0 +1,13 @@
+{
+  "schema": "mel-deployment.manifest.v1",
+  "name": "invalid-path",
+  "repository": {
+    "name": "mel-deployment",
+    "root": "/srv/mel"
+  },
+  "paths": {
+    "current": "/srv/mel/current",
+    "releases": "relative/releases",
+    "shared": "/srv/mel/shared"
+  }
+}

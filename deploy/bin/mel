@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -u
+
+MEL_BIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+MEL_DEPLOY_DIR="$(cd -- "${MEL_BIN_DIR}/.." && pwd)"
+MEL_ROOT="$(cd -- "${MEL_DEPLOY_DIR}/.." && pwd)"
+
+export MEL_ROOT
+
+# shellcheck source=../lib/errors.sh
+. "${MEL_DEPLOY_DIR}/lib/errors.sh"
+# shellcheck source=../lib/output.sh
+. "${MEL_DEPLOY_DIR}/lib/output.sh"
+# shellcheck source=../lib/paths.sh
+. "${MEL_DEPLOY_DIR}/lib/paths.sh"
+# shellcheck source=../lib/schema.sh
+. "${MEL_DEPLOY_DIR}/lib/schema.sh"
+# shellcheck source=../lib/manifest.sh
+. "${MEL_DEPLOY_DIR}/lib/manifest.sh"
+# shellcheck source=../lib/common.sh
+. "${MEL_DEPLOY_DIR}/lib/common.sh"
+
+mel_command_validate() {
+  local manifest_file
+  local schema_file
+
+  manifest_file="$(mel_manifest_default_file)"
+  schema_file="$(mel_manifest_default_schema)"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --manifest)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--manifest requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        manifest_file="$2"
+        shift 2
+        ;;
+      --schema)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--schema requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        schema_file="$2"
+        shift 2
+        ;;
+      --help|-h)
+        mel_usage
+        return "$MEL_EXIT_SUCCESS"
+        ;;
+      *)
+        mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "unknown validate option: $1"
+        return "$MEL_EXIT_ERROR"
+        ;;
+    esac
+  done
+
+  mel_validate_repository_metadata || return "$?"
+  mel_manifest_validate "$manifest_file" "$schema_file" || return "$?"
+
+  mel_output_success "$MEL_CODE_OK" "validation passed"
+  mel_output_detail "manifest" "$manifest_file"
+  mel_output_detail "schema" "$schema_file"
+
+  return "$MEL_EXIT_SUCCESS"
+}
+
+mel_command_info() {
+  local version
+  local version_status
+
+  mel_validate_repository_metadata || return "$?"
+  version="$(mel_version)"
+  version_status=$?
+
+  if [[ "$version_status" -eq "$MEL_EXIT_WARNING" ]]; then
+    mel_output_warning "$MEL_CODE_WARNING" "version metadata is unavailable"
+    return "$MEL_EXIT_WARNING"
+  fi
+
+  mel_output_success "$MEL_CODE_OK" "mel validation engine"
+  mel_output_detail "version" "$version"
+  mel_output_detail "repository" "$MEL_ROOT"
+  mel_output_detail "entrypoint" "${MEL_DEPLOY_DIR}/bin/mel"
+
+  return "$MEL_EXIT_SUCCESS"
+}
+
+mel_command_version() {
+  local version
+  local version_status
+
+  version="$(mel_version)"
+  version_status=$?
+
+  if [[ "$version_status" -eq "$MEL_EXIT_WARNING" ]]; then
+    mel_output_warning "$MEL_CODE_WARNING" "version metadata is unavailable"
+    return "$MEL_EXIT_WARNING"
+  fi
+
+  mel_output_success "$MEL_CODE_OK" "$version"
+
+  return "$MEL_EXIT_SUCCESS"
+}
+
+main() {
+  local command="${1:-}"
+
+  case "$command" in
+    validate)
+      shift
+      mel_command_validate "$@"
+      ;;
+    info)
+      shift
+      if [[ $# -ne 0 ]]; then
+        mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "info does not accept arguments"
+        return "$MEL_EXIT_ERROR"
+      fi
+      mel_command_info
+      ;;
+    version)
+      shift
+      if [[ $# -ne 0 ]]; then
+        mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "version does not accept arguments"
+        return "$MEL_EXIT_ERROR"
+      fi
+      mel_command_version
+      ;;
+    --help|-h|"")
+      mel_usage
+      return "$MEL_EXIT_SUCCESS"
+      ;;
+    *)
+      mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "unknown command: $command"
+      mel_usage >&2
+      return "$MEL_EXIT_ERROR"
+      ;;
+  esac
+}
+
+main "$@"
