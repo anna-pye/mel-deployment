@@ -149,8 +149,24 @@ executor_fixture() {
   local profile_file="${EXECUTOR_TEST_DIR}/.tmp-${name}/profile.json"
 
   rm -rf "${EXECUTOR_TEST_DIR}/.tmp-${name}"
-  mkdir -p "$root/repo" "$root/releases/previous" "$root/releases" "$root/shared" "$root/logs"
-  printf 'runtime\n' >"$root/repo/index.php"
+  mkdir -p "$root/repo/vendor/bin" "$root/repo/web/core/lib" "$root/releases/previous" "$root/releases" "$root/shared" "$root/logs"
+  printf '{"name":"myeventlane/platform"}\n' >"$root/repo/composer.json"
+  printf 'autoload\n' >"$root/repo/vendor/autoload.php"
+  printf 'drupal\n' >"$root/repo/web/core/lib/Drupal.php"
+  printf 'index\n' >"$root/repo/web/index.php"
+  cat >"$root/repo/vendor/bin/drush" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *"--root"* || "$*" == *"--field=bootstrap"* ]]; then
+  printf 'unexpected legacy bootstrap arguments: %s\n' "$*" >&2
+  exit 13
+fi
+if [[ "${1:-}" != "status" ]]; then
+  printf 'expected drush status, got: %s\n' "$*" >&2
+  exit 14
+fi
+printf 'Drupal bootstrap successful via project Drush\n'
+EOF
+  chmod +x "$root/repo/vendor/bin/drush"
   ln -s "$root/releases/previous" "$root/current"
 
   if [[ "$require_shared" == "present" ]]; then
@@ -194,6 +210,7 @@ EOF
   "validation_profile": "staging",
   "policy_profile": "staging",
   "deployment_root": "$root",
+  "repository_path": "$root/repo",
   "required_approvals": [],
   "shared_resources": $shared_resources,
   "plugins": {
@@ -228,7 +245,13 @@ readiness_fixture() {
   local profile_file="${READINESS_TEST_DIR}/.tmp-${name}/profile.json"
 
   rm -rf "${READINESS_TEST_DIR}/.tmp-${name}"
-  mkdir -p "$root/releases/previous" "$root/shared/files" "$root/logs"
+  mkdir -p "$root/repo" "$root/releases/previous/vendor/bin" "$root/releases/previous/web/core/lib" "$root/shared/files" "$root/logs"
+  printf '{"name":"myeventlane/platform"}\n' >"$root/releases/previous/composer.json"
+  printf 'autoload\n' >"$root/releases/previous/vendor/autoload.php"
+  printf 'drush\n' >"$root/releases/previous/vendor/bin/drush"
+  chmod +x "$root/releases/previous/vendor/bin/drush"
+  printf 'drupal\n' >"$root/releases/previous/web/core/lib/Drupal.php"
+  printf 'index\n' >"$root/releases/previous/web/index.php"
   ln -s "$root/releases/previous" "$root/current"
 
   if [[ "$layout" == "missing-releases" ]]; then
@@ -254,6 +277,7 @@ readiness_fixture() {
   "policy_profile": "staging",
   "deployment_root": "$root",
   "repository": "git@github.com:anna-pye/myeventlane-platform.git",
+  "repository_path": "$root/repo",
   "ssh": {
     "host": "staging",
     "user": "mel"
@@ -316,8 +340,10 @@ live_doctor_fixture() {
   rm -rf "$tmp"
   mkdir -p "$repo_path" "$release/web/core/lib" "$release/vendor/bin" "$root/releases/previous" "$root/shared" "$root/logs" "$bin_path"
   printf 'runtime\n' >"$repo_path/index.php"
-  printf 'autoload\n' >"$release/autoload.php"
+  printf '{"name":"myeventlane/platform"}\n' >"$release/composer.json"
+  printf 'autoload\n' >"$release/vendor/autoload.php"
   printf 'drupal\n' >"$release/web/core/lib/Drupal.php"
+  printf 'index\n' >"$release/web/index.php"
   ln -s "$release" "$root/current"
 
   cat >"${bin_path}/ssh" <<'EOF'
@@ -428,6 +454,7 @@ EOF
   "policy_profile": "staging",
   "deployment_root": "$root",
   "repository": "git@github.com:anna-pye/myeventlane-platform.git",
+  "repository_path": "$repo_path",
   "ssh": {
     "host": "staging",
     "user": "$(whoami)"
@@ -453,6 +480,8 @@ EOF
   "doctor_checks": [
     {"name": "ssh_connectivity", "type": "ssh_connectivity", "mode": "ssh"},
     {"name": "repo", "type": "repo_exists", "mode": "ssh"},
+    {"name": "release_integrity", "type": "release_integrity", "mode": "ssh"},
+    {"name": "drupal_bootstrap", "type": "drupal_bootstrap", "mode": "ssh"},
     {"name": "current", "type": "current_exists", "mode": "ssh"},
     {"name": "current_target", "type": "current_target_exists", "mode": "ssh"},
     {"name": "logs", "type": "logs_exists", "mode": "ssh"},
@@ -926,7 +955,7 @@ test_doctor_composer_managed_drush() {
   assert_contains "doctor captures Drush status output" "$output" "Drupal bootstrap successful via project Drush"
 }
 
-test_doctor_global_drush_fallback() {
+test_doctor_global_drush_is_availability_only() {
   local fixture
   local root
   local repo_path
@@ -944,9 +973,11 @@ test_doctor_global_drush_fallback() {
   status=$?
   output="$(<"$output_file")"
 
-  assert_exit "doctor falls back to global Drush on PATH" 0 "$status"
+  assert_exit "doctor rejects release without project Drush" 2 "$status"
   assert_contains "doctor reports PATH Drush path" "$output" "\"drush_path\": \"${bin_path}/drush\""
   assert_contains "doctor reports PATH Drush version" "$output" "global-fallback"
+  assert_contains "doctor reports invalid release" "$output" '"release_integrity_status": "failed"'
+  assert_contains "doctor does not bootstrap with global Drush" "$output" '"drupal_bootstrap_capable": false'
 }
 
 test_doctor_failed_bootstrap_exit_code() {
@@ -967,9 +998,10 @@ test_doctor_failed_bootstrap_exit_code() {
   status=$?
   output="$(<"$output_file")"
 
-  assert_exit "doctor snapshot succeeds when Drush status fails" 0 "$status"
+  assert_exit "doctor fails when project Drush status fails" 2 "$status"
   assert_contains "doctor reports failed bootstrap status output" "$output" "Drupal bootstrap failed"
   assert_contains "doctor treats non-zero Drush status as not bootstrap capable" "$output" '"drupal_bootstrap_capable": false'
+  assert_contains "doctor distinguishes bootstrap failure" "$output" '"drupal_bootstrap_failure_reason": "bootstrap_failed"'
 }
 
 test_doctor_production_json() {
@@ -1276,7 +1308,7 @@ test_report_generation() {
   output="$(<"$output_file")"
 
   assert_exit "report generation exits success" 0 "$status"
-  assert_contains "report includes deployment ready" "$output" "Deployment Ready: READY"
+  assert_contains "report includes deployment ready" "$output" "Deployment Ready: YES"
   assert_contains "report includes profile version" "$output" "Profile Version: 1"
 }
 
@@ -1293,7 +1325,9 @@ test_report_live_mock_output() {
   assert_contains "live report includes hostname" "$output" "Server Hostname: staging-web-01"
   assert_contains "live report includes current release" "$output" "Current Release: 20260703120000"
   assert_contains "live report includes PHP version" "$output" "PHP Version: PHP 8.3.10"
-  assert_contains "live report includes deployment ready" "$output" "Deployment Ready: READY"
+  assert_contains "live report includes release integrity" "$output" "Release Integrity: PASS"
+  assert_contains "live report includes bootstrap" "$output" "Drupal Bootstrap: PASS"
+  assert_contains "live report includes deployment ready" "$output" "Deployment Ready: YES"
 }
 
 test_execute_dry_run_staging() {
@@ -1503,6 +1537,27 @@ test_failed_health() {
   assert_contains "executor reports health failure" "$output" "MEL_HEALTH_INVALID"
 }
 
+test_failed_release_integrity() {
+  local fixture
+  local root
+  local manifest_file
+  local profile_file
+  local output_file="${EXECUTOR_TEST_DIR}/.failed-release-integrity.out"
+  local status
+  local output
+
+  fixture="$(executor_fixture "failed-release-integrity")"
+  IFS=$'\t' read -r root manifest_file profile_file <<<"$fixture"
+  rm -f "$root/repo/vendor/autoload.php"
+
+  run_command "$output_file" env MEL_EXECUTOR_TEST_MODE=1 "$MEL" execute staging --manifest "$manifest_file" --profile "$profile_file" --repository-state clean
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "executor fails release integrity validation" 2 "$status"
+  assert_contains "executor reports release integrity failure" "$output" "release integrity validation failed"
+}
+
 test_successful_rollback() {
   local fixture
   local root
@@ -1636,7 +1691,7 @@ test_dry_run_plan_file
 test_doctor_staging
 test_doctor_reports_repository_path_from_snapshot
 test_doctor_composer_managed_drush
-test_doctor_global_drush_fallback
+test_doctor_global_drush_is_availability_only
 test_doctor_failed_bootstrap_exit_code
 test_doctor_production_json
 test_health_success
@@ -1665,6 +1720,7 @@ test_failed_shared_resource
 test_failed_composer_plugin
 test_failed_drush_plugin
 test_failed_health
+test_failed_release_integrity
 test_successful_rollback
 test_failed_rollback
 test_release_manifest_generation

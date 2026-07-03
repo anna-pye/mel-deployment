@@ -73,6 +73,74 @@ except OSError as exc:
 PY
 }
 
+mel_release_validate_integrity() {
+  local release_root="$1"
+
+  python3 - "$release_root" <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+release_root = os.path.abspath(sys.argv[1])
+
+REQUIRED_FILES = [
+    "composer.json",
+    "vendor/autoload.php",
+    "vendor/bin/drush",
+    "web/core/lib/Drupal.php",
+    "web/index.php",
+]
+
+
+def result(status, reason, message, missing=None, bootstrap_output=""):
+    payload = {
+        "status": status,
+        "reason": reason,
+        "message": message,
+        "missing": missing or [],
+        "bootstrap_output": bootstrap_output,
+    }
+    print(json.dumps(payload, indent=2))
+
+
+missing = [path for path in REQUIRED_FILES if not os.path.isfile(os.path.join(release_root, path))]
+drush_path = os.path.join(release_root, "vendor/bin/drush")
+
+if not os.path.isdir(release_root):
+    result("failed", "release_invalid", f"release root is missing: {release_root}", REQUIRED_FILES)
+    sys.exit(2)
+
+if missing:
+    result("failed", "release_invalid", "release is missing required Drupal 11 files", missing)
+    sys.exit(2)
+
+if not os.access(drush_path, os.X_OK):
+    result("failed", "release_invalid", "project-local Drush is not executable", ["vendor/bin/drush"])
+    sys.exit(2)
+
+completed = subprocess.run(
+    [drush_path, "status"],
+    cwd=release_root,
+    text=True,
+    capture_output=True,
+    check=False,
+)
+bootstrap_output = (completed.stdout + completed.stderr).strip()
+if completed.returncode != 0:
+    result(
+        "failed",
+        "bootstrap_failed",
+        "project-local Drush status failed",
+        [],
+        bootstrap_output or f"vendor/bin/drush status exited {completed.returncode}",
+    )
+    sys.exit(2)
+
+result("passed", "passed", "release integrity and Drupal bootstrap passed", [], bootstrap_output)
+PY
+}
+
 mel_release_link_shared_resources() {
   local profile_file="$1"
   local staging_root="$2"
@@ -182,6 +250,7 @@ def text(mapping, key, location):
 def configured_path(profile, key):
     root = text(profile, "deployment_root", "profile")
     paths = profile.get("paths", {})
+    repository_path = profile.get("repository_path")
     defaults = {
         "deployment_root": root,
         "repo": os.path.join(root, "repo"),
@@ -190,8 +259,10 @@ def configured_path(profile, key):
         "current": os.path.join(root, "current"),
         "logs": os.path.join(root, "logs"),
     }
-    if key in {"deployment_root", "repo"}:
-        return defaults[key]
+    if key == "deployment_root":
+        return root
+    if key == "repo" and isinstance(repository_path, str) and repository_path.strip():
+        return repository_path.strip()
     if isinstance(paths, dict) and isinstance(paths.get(key), str) and paths[key].strip():
         return paths[key].strip()
     return defaults[key]

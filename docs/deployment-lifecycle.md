@@ -40,9 +40,9 @@ Rollback when post-switch validation fails
 - Health evaluates profile-configured health state before and after release activity.
 - Layout verification validates required staging paths and shared resources without repair.
 - Report summarises deployment readiness and blocking reasons.
-- Executor prepares staging releases, invokes mock plugins, switches `current` atomically, and writes release logs.
+- Executor prepares staging releases, validates immutable release integrity, invokes mock operation plugins, switches `current` atomically, and writes release logs.
 - Rollback restores the previous `current` symlink after post-switch validation failure.
 
 ## Boundary
 
-Only staging execution is implemented. Production deployment and production rollback are forbidden. The executor does not run SSH, rsync, SCP, real Composer, real Drush, or hardcoded credentials.
+Only staging execution is implemented. Production deployment and production rollback are forbidden. The executor does not run SSH, rsync, SCP, real Composer install/update operations, Drush update/cache-rebuild operations, or hardcoded credentials. Release validation may run read-only `vendor/bin/drush status` from a prepared release root.

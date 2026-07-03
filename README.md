@@ -2,7 +2,7 @@
 
 mel-deployment is the local validation, resolution, planning, policy, dry-run, doctor, health, plugin-contract, and staging executor foundation for the MyEventLane deployment framework.
 
-The current implementation validates manifests, resolves validated manifests into canonical deployment models, converts resolved models into deterministic execution plans, evaluates deployment policy, renders dry-run simulations, validates mock doctor contracts, evaluates supplied health state, validates plugin contracts, and can execute a staging-only atomic release workflow. It does not support production execution, production rollback, SSH, rsync, real Composer execution, real Drush execution, hardcoded credentials, or hardcoded SSH keys.
+The current implementation validates manifests, resolves validated manifests into canonical deployment models, converts resolved models into deterministic execution plans, evaluates deployment policy, renders dry-run simulations, validates mock doctor contracts, evaluates supplied health state, validates plugin contracts, and can execute a staging-only atomic release workflow. It does not support production execution, production rollback, rsync, real Composer install/update execution, Drush update/cache-rebuild execution, hardcoded credentials, or hardcoded SSH keys. Staging readiness can use read-only SSH checks and project-local `vendor/bin/drush status` bootstrap validation when configured by the profile.
 
 ## Command Interface
 

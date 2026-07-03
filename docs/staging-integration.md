@@ -8,6 +8,7 @@ This phase integrates the framework with the staging profile used by doctor, ver
 
 - `profile_version`
 - `repository`
+- `repository_path`
 - `ssh.host`
 - `ssh.user`
 - `deployment_root`
@@ -46,7 +47,7 @@ Doctor modes:
 - `profile` validates that the required profile configuration exists.
 - `ssh` runs read-only SSH probes such as `test`, `command -v`, and symlink checks.
 
-Doctor must not create directories, modify files, change permissions, run deployment steps, run Composer, or run Drush updates.
+Doctor must not create directories, modify files, change permissions, run deployment steps, run Composer, or run Drush updates. Live bootstrap evidence uses only read-only `vendor/bin/drush status` from the current release root.
 
 ## Layout And Health
 
@@ -69,13 +70,18 @@ Layout verification returns structured failures and does not repair missing dire
 Deployment report
 Environment: staging
 Repository: git@github.com:anna-pye/myeventlane-platform.git
+Canonical Repository Path: /home/mel/staging-repo
 Framework Version: 0.1.0-dev
 Profile Version: 1
 Doctor Status: passed
 Health Status: passed
 Layout Status: passed
+Repository Integrity: PASS
+Release Integrity: PASS
+Drupal Bootstrap: PASS
 Policy Status: allowed
-Deployment Ready: READY
+Deployment Recommendation: deploy
+Deployment Ready: YES
 ```
 
 If any blocking check fails, deployment readiness is `NOT READY` and the report lists blocking reasons.

@@ -79,8 +79,10 @@ def list_value(mapping, key, location):
 def configured_path(profile, key):
     paths = profile.get("paths", {})
     root = text(profile, "deployment_root", "profile")
+    repository_path = profile.get("repository_path")
     defaults = {
         "deployment_root": root,
+        "repo": os.path.join(root, "repo"),
         "releases": os.path.join(root, "releases"),
         "shared": os.path.join(root, "shared"),
         "current": os.path.join(root, "current"),
@@ -88,6 +90,8 @@ def configured_path(profile, key):
     }
     if key == "deployment_root":
         return root
+    if key == "repo" and isinstance(repository_path, str) and repository_path.strip():
+        return repository_path.strip()
     if isinstance(paths, dict) and isinstance(paths.get(key), str) and paths[key].strip():
         return paths[key].strip()
     return defaults[key]
@@ -107,6 +111,7 @@ def validate_profile(profile):
         ("policy_profile", "profile"),
         ("deployment_root", "profile"),
         ("repository", "profile"),
+        ("repository_path", "profile"),
     ]
     for key, location in required_text:
         try:
@@ -180,12 +185,18 @@ def evaluate_layout(profile):
     mode = verification_mode(profile)
     paths = {
         "deployment_root": configured_path(profile, "deployment_root"),
+        "repo": configured_path(profile, "repo"),
         "releases": configured_path(profile, "releases"),
         "shared": configured_path(profile, "shared"),
         "current": configured_path(profile, "current"),
         "logs": configured_path(profile, "logs"),
     }
     failures = []
+    current_release = ""
+    current_target = ""
+    release_integrity_status = ""
+    release_integrity_message = ""
+    release_integrity_missing = ""
 
     if mode == "ssh":
         doctor, snapshot = doctor_snapshot()
@@ -209,15 +220,42 @@ def evaluate_layout(profile):
             add_failure(failures, "release_count", "no releases were found on the live server")
         if snapshot.get("readable_shared") is not True or snapshot.get("shared_resources_readable") is not True:
             add_failure(failures, "shared_resources", "shared directory or configured shared resources are not readable")
+        current_release = snapshot.get("current_release", "")
+        current_target = snapshot.get("current_target_resolved", "")
+        release_integrity_status = snapshot.get("release_integrity_status", "")
+        release_integrity_message = snapshot.get("release_integrity_message", "")
+        release_integrity_missing = snapshot.get("release_integrity_missing", "")
+        if release_integrity_status and release_integrity_status != "passed":
+            add_failure(failures, "release_integrity", release_integrity_message or "release invalid")
 
     if mode == "local":
-        for label in ("deployment_root", "releases", "shared", "logs"):
+        for label in ("deployment_root", "repo", "releases", "shared", "logs"):
             if not os.path.isdir(paths[label]):
                 add_failure(failures, label, f"{label} directory is missing: {paths[label]}")
         if not os.path.islink(paths["current"]):
             add_failure(failures, "current", f"current symlink is missing or not a symlink: {paths['current']}")
         elif not os.path.exists(os.path.realpath(paths["current"])):
             add_failure(failures, "current", f"current symlink target is missing: {paths['current']}")
+        else:
+            current_target = os.path.realpath(paths["current"])
+            current_release = os.path.basename(current_target)
+            required_files = [
+                "composer.json",
+                "vendor/autoload.php",
+                "vendor/bin/drush",
+                "web/core/lib/Drupal.php",
+                "web/index.php",
+            ]
+            missing = [item for item in required_files if not os.path.isfile(os.path.join(current_target, item))]
+            release_integrity_status = "passed" if not missing else "failed"
+            release_integrity_message = (
+                "release contains required Drupal 11 files"
+                if not missing
+                else "release is missing required Drupal 11 files"
+            )
+            release_integrity_missing = ",".join(missing)
+            if missing:
+                add_failure(failures, "release_integrity", release_integrity_message)
 
         shared_root = paths["shared"]
         for index, resource in enumerate(list_value(profile, "shared_resources", "profile")):
@@ -241,10 +279,13 @@ def evaluate_layout(profile):
         "status": "passed" if not failures else "failed",
         "mode": mode,
         "paths": paths,
-        "current_release": doctor_snapshot()[1].get("current_release", "") if mode == "ssh" else "",
-        "current_target": doctor_snapshot()[1].get("current_target_resolved", "") if mode == "ssh" else "",
+        "current_release": current_release,
+        "current_target": current_target,
         "release_count": doctor_snapshot()[1].get("release_count", 0) if mode == "ssh" else 0,
         "web_docroot": doctor_snapshot()[1].get("web_docroot", "") if mode == "ssh" else "",
+        "release_integrity_status": release_integrity_status,
+        "release_integrity_message": release_integrity_message,
+        "release_integrity_missing": release_integrity_missing,
         "failures": failures,
     }
 
@@ -337,11 +378,24 @@ def evaluate_health(profile):
             add_failure(failures, name, message)
 
     if mode == "ssh":
+        release_passed = snapshot.get("release_integrity_status") == "passed"
+        release_message = snapshot.get("release_integrity_message") or "release integrity unavailable"
+        results.append({
+            "name": "release_integrity",
+            "type": "release_integrity",
+            "status": "passed" if release_passed else "failed",
+            "message": release_message,
+        })
+        if not release_passed:
+            add_failure(failures, "release_integrity", release_message)
+
         passed = snapshot.get("drupal_bootstrap_capable") is True
         message = (
-            f"Drupal bootstrap files detected in {snapshot.get('web_docroot')}"
+            "project-local Drush status completed successfully"
             if passed
-            else "Drupal bootstrap files were not detected in the live current release"
+            else snapshot.get("drupal_bootstrap_status")
+            or snapshot.get("drupal_bootstrap_failure_reason")
+            or "Drupal bootstrap failed in the live current release"
         )
         results.append({
             "name": "drupal_bootstrap_capability",
@@ -435,6 +489,35 @@ def status_from_json(value, key="status"):
     return value.get(key, "failed")
 
 
+def configured_path(profile, key):
+    root = profile.get("deployment_root", "")
+    paths = profile.get("paths", {})
+    repository_path = profile.get("repository_path")
+    defaults = {
+        "deployment_root": root,
+        "repo": f"{root}/repo" if root else "",
+        "releases": f"{root}/releases" if root else "",
+        "shared": f"{root}/shared" if root else "",
+        "current": f"{root}/current" if root else "",
+        "logs": f"{root}/logs" if root else "",
+    }
+    if key == "deployment_root":
+        return root
+    if key == "repo" and isinstance(repository_path, str) and repository_path.strip():
+        return repository_path.strip()
+    if isinstance(paths, dict) and isinstance(paths.get(key), str) and paths[key].strip():
+        return paths[key].strip()
+    return defaults[key]
+
+
+def pass_fail_unknown(value):
+    if value is True or value == "passed":
+        return "PASS"
+    if value is False or value == "failed":
+        return "FAIL"
+    return "UNKNOWN"
+
+
 def collect_blockers(label, value):
     blockers = []
     if not isinstance(value, dict):
@@ -482,6 +565,15 @@ elif isinstance(verify_json, dict) and isinstance(verify_json.get("server"), dic
     server_json = verify_json["server"]
 layout_json = verify_json.get("checks", {}).get("layout", {}) if isinstance(verify_json, dict) else {}
 health_json = verify_json.get("checks", {}).get("health", {}) if isinstance(verify_json, dict) else {}
+canonical_repository_path = configured_path(profile, "repo")
+repository_result = pass_fail_unknown(server_json.get("repo_exists") if server_json else status_from_json(layout_json) == "passed")
+release_integrity_value = (
+    server_json.get("release_integrity_status")
+    or layout_json.get("release_integrity_status")
+    or ""
+)
+release_integrity_result = pass_fail_unknown(release_integrity_value)
+bootstrap_result = pass_fail_unknown(server_json.get("drupal_bootstrap_capable") if server_json else "")
 
 blockers = []
 if validation_code != 0:
@@ -509,9 +601,11 @@ for blocker in blockers:
         seen_blockers.add(blocker)
 blockers = deduplicated_blockers
 ready = not blockers
+deployment_recommendation = "deploy" if ready else "do not deploy"
 report = {
     "environment": environment,
     "repository": profile.get("repository", "unknown"),
+    "canonical_repository_path": canonical_repository_path,
     "framework_version": framework_version,
     "profile_version": profile.get("profile_version", "unknown"),
     "server_hostname": server_json.get("hostname", "unknown"),
@@ -524,14 +618,19 @@ report = {
     "doctor_status": status_from_json(doctor_json),
     "health_status": status_from_json(health_json),
     "layout_status": status_from_json(layout_json),
+    "repository_result": repository_result,
+    "release_integrity": release_integrity_result,
+    "bootstrap_result": bootstrap_result,
     "policy_status": policy_json.get("decision", "blocked"),
-    "deployment_ready": "READY" if ready else "NOT READY",
+    "deployment_recommendation": deployment_recommendation,
+    "deployment_ready": "YES" if ready else "NO",
     "blocking_reasons": blockers,
 }
 
 print("Deployment report")
 print(f"Environment: {report['environment']}")
 print(f"Repository: {report['repository']}")
+print(f"Canonical Repository Path: {report['canonical_repository_path']}")
 print(f"Framework Version: {report['framework_version']}")
 print(f"Profile Version: {report['profile_version']}")
 print(f"Server Hostname: {report['server_hostname']}")
@@ -544,7 +643,11 @@ print(f"Drush Version: {report['drush_version']}")
 print(f"Doctor Status: {report['doctor_status']}")
 print(f"Health Status: {report['health_status']}")
 print(f"Layout Status: {report['layout_status']}")
+print(f"Repository Integrity: {report['repository_result']}")
+print(f"Release Integrity: {report['release_integrity']}")
+print(f"Drupal Bootstrap: {report['bootstrap_result']}")
 print(f"Policy Status: {report['policy_status']}")
+print(f"Deployment Recommendation: {report['deployment_recommendation']}")
 print(f"Deployment Ready: {report['deployment_ready']}")
 if blockers:
     print("Blocking Issues:")

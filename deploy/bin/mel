@@ -574,6 +574,11 @@ mel_command_execute() {
     esac
   done
 
+  if [[ "$dry_run" != "true" && "${MEL_EXECUTOR_TEST_MODE:-}" != "1" ]]; then
+    mel_output_error "$MEL_CODE_EXECUTOR_INVALID" "staging execution is disabled; use --dry-run"
+    return "$MEL_EXIT_ERROR"
+  fi
+
   if [[ -z "$profile_file" ]]; then
     profile_file="$(mel_executor_default_profile_file "$environment")"
   fi

@@ -25,6 +25,9 @@ Profiles may define mock check contracts for:
 - writable release root
 - required directory layout
 - deployment root existence
+- repository directory existence
+- release integrity
+- Drupal bootstrap through project-local Drush
 - releases directory existence
 - shared directory existence
 - current symlink existence
@@ -36,6 +39,14 @@ Profiles may define mock check contracts for:
 
 Every check must declare a supported mode. `mock` validates the contract, `profile` validates required profile configuration, and `ssh` performs read-only remote checks. Unsupported modes fail closed.
 
+For live staging checks, Doctor distinguishes these failure classes:
+
+- repository invalid: the canonical repository path from `repository_path` is missing or invalid.
+- release invalid: the current release is missing required Drupal 11 release files.
+- bootstrap failed: the release files are present, but `vendor/bin/drush status` fails from the release root.
+
+Doctor does not use legacy Drupal 7 bootstrap files. Global Drush can be reported for availability, but release bootstrap is valid only through the current release's `vendor/bin/drush`.
+
 ## Non-Execution Guarantee
 
-Doctor must not modify files, execute deployment steps, run Composer, run Drush, change symlinks, create releases, or write to staging or production.
+Doctor must not modify files, execute deployment steps, run Composer, run Drush update/cache-rebuild operations, change symlinks, create releases, or write to staging or production. Its only Drush use is read-only `vendor/bin/drush status` for bootstrap evidence when an SSH snapshot is enabled.

@@ -42,7 +42,6 @@ The required structure is:
 
 ```text
 /home/mel/staging/
-  repo/
   releases/
   shared/
   current -> releases/<release-id>
@@ -52,6 +51,8 @@ The required structure is:
 Dry-runs validate the profile and pipeline without requiring the live path to exist. Real execution verifies the directories and `current` symlink before creating a release.
 
 The executor reads `paths.releases`, `paths.shared`, `paths.current`, and `paths.logs` from the profile, falling back to directories under `deployment_root` only when an older profile omits explicit path keys.
+
+The executor reads the canonical repository path from `repository_path`. The default staging profile sets this to `/home/mel/staging-repo`, intentionally keeping the source repository outside the immutable release tree under `/home/mel/staging`.
 
 ## Release Preparation
 
@@ -71,11 +72,23 @@ It copies runtime repository contents from `repo/` into the release and excludes
 
 `current` is not changed during release preparation.
 
+Before release health checks and before switching `current`, the executor validates release integrity. A release must contain:
+
+- `composer.json`
+- `vendor/autoload.php`
+- `vendor/bin/drush`
+- `web/core/lib/Drupal.php`
+- `web/index.php`
+
+The release must also execute `vendor/bin/drush status` successfully from the release root. This is a Drupal 11 release contract; legacy Drupal 7 bootstrap files are not accepted.
+
+Prepared releases are immutable. If validation fails, the release is rejected and the deployment stops. Operators must replace the broken release with a corrected one instead of repairing it in place, preserving auditability and keeping rollback behavior deterministic.
+
 ## Plugins
 
 The executor uses the existing plugin framework. Composer, Drush, shared resource linking, health, and current switching are invoked through plugin contracts.
 
-This phase supports mock plugins only. The executor does not embed Composer or Drush commands and does not run SSH.
+This phase supports mock Composer and Drush operation plugins only. The executor does not run SSH and does not embed Composer install/update or Drush update/cache-rebuild commands. The only project Drush command in the executor path is the read-only release validation command `vendor/bin/drush status`.
 
 ## Rollback
 

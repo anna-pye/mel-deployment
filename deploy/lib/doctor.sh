@@ -36,6 +36,8 @@ SUPPORTED_CHECKS = {
     "directory_layout",
     "deployment_root_exists",
     "repo_exists",
+    "release_integrity",
+    "drupal_bootstrap",
     "releases_exists",
     "shared_exists",
     "current_exists",
@@ -99,6 +101,7 @@ def list_value(mapping, key, location):
 def configured_path(profile, key):
     root = text(profile, "deployment_root", "profile")
     paths = profile.get("paths", {})
+    repository_path = profile.get("repository_path")
     defaults = {
         "deployment_root": root,
         "repo": f"{root}/repo",
@@ -109,6 +112,8 @@ def configured_path(profile, key):
     }
     if key == "deployment_root":
         return root
+    if key == "repo" and isinstance(repository_path, str) and repository_path.strip():
+        return repository_path.strip()
     if isinstance(paths, dict) and isinstance(paths.get(key), str) and paths[key].strip():
         return paths[key].strip()
     return defaults[key]
@@ -127,6 +132,8 @@ def profile_configuration_check(profile, kind):
         configured_path(profile, "deployment_root")
     elif kind == "repo_exists":
         configured_path(profile, "repo")
+    elif kind in {"release_integrity", "drupal_bootstrap"}:
+        configured_path(profile, "current")
     elif kind == "releases_exists":
         configured_path(profile, "releases")
     elif kind == "shared_exists":
@@ -185,6 +192,8 @@ def remote_command_for(profile, kind):
         return directory(configured_path(profile, "deployment_root"))
     if kind == "repo_exists":
         return directory(configured_path(profile, "repo"))
+    if kind in {"release_integrity", "drupal_bootstrap"}:
+        return f"test -L {shlex.quote(configured_path(profile, 'current'))}"
     if kind == "releases_exists":
         return directory(configured_path(profile, "releases"))
     if kind == "shared_exists":
@@ -390,14 +399,51 @@ elif [ -d "$REPO_DIR/web" ]; then
   WEB_DOCROOT="$REPO_DIR/web"
 fi
 say web_docroot "$WEB_DOCROOT"
+
+RELEASE_ROOT="$CURRENT_TARGET_RESOLVED"
+RELEASE_INTEGRITY_STATUS="failed"
+RELEASE_INTEGRITY_MESSAGE="current release target is missing"
+RELEASE_INTEGRITY_MISSING=""
+PROJECT_DRUSH_PATH=""
+if [ -n "$RELEASE_ROOT" ] && [ -d "$RELEASE_ROOT" ]; then
+  RELEASE_INTEGRITY_STATUS="passed"
+  RELEASE_INTEGRITY_MESSAGE="release contains required Drupal 11 files"
+  for required_file in composer.json vendor/autoload.php vendor/bin/drush web/core/lib/Drupal.php web/index.php; do
+    if [ ! -f "$RELEASE_ROOT/$required_file" ]; then
+      RELEASE_INTEGRITY_STATUS="failed"
+      if [ -z "$RELEASE_INTEGRITY_MISSING" ]; then
+        RELEASE_INTEGRITY_MISSING="$required_file"
+      else
+        RELEASE_INTEGRITY_MISSING="$RELEASE_INTEGRITY_MISSING,$required_file"
+      fi
+    fi
+  done
+  PROJECT_DRUSH_PATH="$RELEASE_ROOT/vendor/bin/drush"
+  if [ "$RELEASE_INTEGRITY_STATUS" = "passed" ] && [ ! -x "$PROJECT_DRUSH_PATH" ]; then
+    RELEASE_INTEGRITY_STATUS="failed"
+    RELEASE_INTEGRITY_MISSING="vendor/bin/drush"
+    RELEASE_INTEGRITY_MESSAGE="project-local Drush is not executable"
+  elif [ "$RELEASE_INTEGRITY_STATUS" = "failed" ]; then
+    RELEASE_INTEGRITY_MESSAGE="release is missing required Drupal 11 files"
+  fi
+fi
+say release_integrity_status "$RELEASE_INTEGRITY_STATUS"
+say release_integrity_message "$RELEASE_INTEGRITY_MESSAGE"
+say release_integrity_missing "$RELEASE_INTEGRITY_MISSING"
+say project_drush_path "$PROJECT_DRUSH_PATH"
+
 DRUPAL_BOOTSTRAP_STATUS=""
 DRUPAL_BOOTSTRAP_CAPABLE=false
-if [ -n "$DRUSH_PATH" ] && [ -n "$WEB_DOCROOT" ]; then
-  DRUPAL_PROJECT_ROOT="$(dirname "$WEB_DOCROOT")"
-  DRUPAL_BOOTSTRAP_STATUS="$(cd "$DRUPAL_PROJECT_ROOT" && "$DRUSH_PATH" status 2>&1)"
+DRUPAL_BOOTSTRAP_FAILURE_REASON=""
+if [ "$RELEASE_INTEGRITY_STATUS" != "passed" ]; then
+  DRUPAL_BOOTSTRAP_FAILURE_REASON="release_invalid"
+elif [ -n "$PROJECT_DRUSH_PATH" ]; then
+  DRUPAL_BOOTSTRAP_STATUS="$(cd "$RELEASE_ROOT" && "$PROJECT_DRUSH_PATH" status 2>&1)"
   DRUPAL_BOOTSTRAP_EXIT=$?
   if [ "$DRUPAL_BOOTSTRAP_EXIT" -eq 0 ]; then
     DRUPAL_BOOTSTRAP_CAPABLE=true
+  else
+    DRUPAL_BOOTSTRAP_FAILURE_REASON="bootstrap_failed"
   fi
   if [ -z "$DRUPAL_BOOTSTRAP_STATUS" ]; then
     DRUPAL_BOOTSTRAP_STATUS="drush status exited $DRUPAL_BOOTSTRAP_EXIT"
@@ -407,6 +453,7 @@ if [ -n "$DRUSH_PATH" ] && [ -n "$WEB_DOCROOT" ]; then
 fi
 say drupal_bootstrap_status "$DRUPAL_BOOTSTRAP_STATUS"
 say drupal_bootstrap_capable "$DRUPAL_BOOTSTRAP_CAPABLE"
+say drupal_bootstrap_failure_reason "$DRUPAL_BOOTSTRAP_FAILURE_REASON"
 """
 
 
@@ -490,8 +537,13 @@ def snapshot_from_values(profile, values, mode):
         "readable_shared": bool_value(values, "readable_shared"),
         "shared_resources_readable": bool_value(values, "shared_resources_readable"),
         "web_docroot": values.get("web_docroot", ""),
+        "release_integrity_status": values.get("release_integrity_status", ""),
+        "release_integrity_message": values.get("release_integrity_message", ""),
+        "release_integrity_missing": values.get("release_integrity_missing", ""),
+        "project_drush_path": values.get("project_drush_path", ""),
         "drupal_bootstrap_status": values.get("drupal_bootstrap_status", ""),
         "drupal_bootstrap_capable": bool_value(values, "drupal_bootstrap_capable"),
+        "drupal_bootstrap_failure_reason": values.get("drupal_bootstrap_failure_reason", ""),
     }
 
 
@@ -506,7 +558,20 @@ def snapshot_check(snapshot, profile, kind):
             f"remote user: {snapshot.get('user', 'unknown')}",
         ),
         "deployment_root_exists": (snapshot.get("deployment_root_exists") is True, "deployment root exists"),
-        "repo_exists": (snapshot.get("repo_exists") is True, "repo directory exists"),
+        "repo_exists": (
+            snapshot.get("repo_exists") is True,
+            "repository valid" if snapshot.get("repo_exists") is True else "repository invalid: repo directory missing",
+        ),
+        "release_integrity": (
+            snapshot.get("release_integrity_status") == "passed",
+            snapshot.get("release_integrity_message") or "release invalid",
+        ),
+        "drupal_bootstrap": (
+            snapshot.get("drupal_bootstrap_capable") is True,
+            snapshot.get("drupal_bootstrap_status")
+            or snapshot.get("drupal_bootstrap_failure_reason")
+            or "bootstrap failed",
+        ),
         "releases_exists": (snapshot.get("releases_exists") is True, "releases directory exists"),
         "shared_exists": (snapshot.get("shared_exists") is True, "shared directory exists"),
         "current_exists": (snapshot.get("current_symlink_exists") is True, "current symlink exists"),

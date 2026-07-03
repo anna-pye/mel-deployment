@@ -8,7 +8,7 @@ mel-deployment implements local validation, resolution, planner, policy, dry-run
 - New behavior should be exposed through subcommands, not additional binaries.
 - Validation, resolution, planner, policy, dry-run, doctor, health, plugin, executor, release, rollback, and release manifest libraries live under `deploy/lib/` and are reusable by future phases.
 - The engine fails with structured `success`, `warning`, or `error` output and stable exit codes.
-- Production execution is forbidden. The staging executor does not run SSH, rsync, real Composer, real Drush, or hardcoded credentials.
+- Production execution is forbidden. The staging executor does not run SSH, rsync, real Composer install/update operations, Drush update/cache-rebuild operations, or hardcoded credentials.
 
 ## Components
 
@@ -111,9 +111,9 @@ Policy evaluates environment, local repository state, deployment profile, approv
 
 ## Staging Executor Flow
 
-`mel execute staging` supports only the staging environment and reads its deployment root and layout paths from `profiles/staging.json`. It verifies the required `repo/`, `releases/`, `shared/`, `current`, and `logs/` layout before mutation.
+`mel execute staging` supports only the staging environment and reads its deployment root and layout paths from `profiles/staging.json`. It verifies the required repository path, `releases/`, `shared/`, `current`, and `logs/` layout before mutation. The canonical repository path comes from `repository_path`; the default staging profile uses the external source repository `/home/mel/staging-repo`.
 
-The executor creates `releases/<release-id>/`, copies runtime repository contents from `repo/`, links profile-defined shared resources, invokes mock plugins for Composer, Drush, health, shared resources, and current switching, writes `release.json`, writes `logs/<release-id>.deployment.json`, and switches `current` atomically only after all pre-switch checks pass.
+The executor creates `releases/<release-id>/`, copies runtime repository contents from `repo/`, links profile-defined shared resources, validates required Drupal 11 release files and read-only `vendor/bin/drush status`, invokes mock plugins for Composer, Drush operations, health, shared resources, and current switching, writes `release.json`, writes `logs/<release-id>.deployment.json`, and switches `current` atomically only after all pre-switch checks pass.
 
 ## Staging Verification Flow
 
@@ -142,4 +142,4 @@ The engine does not validate server path existence in this phase. Resolution may
 
 ## Non-Goals
 
-This phase intentionally excludes production deployment, production rollback, SSH commands, rsync, SCP, real Composer execution, real Drush execution, remote modification, hardcoded credentials, and hardcoded SSH configuration.
+This phase intentionally excludes production deployment, production rollback, SSH mutation commands, rsync, SCP, real Composer install/update execution, Drush update/cache-rebuild execution, remote modification, hardcoded credentials, and hardcoded SSH configuration.

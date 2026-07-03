@@ -284,6 +284,7 @@ mel_executor_run() {
   local releases_path
   local shared_path
   local logs_path
+  local repository_path
   local release_root
   local current_link
   local previous_current=""
@@ -317,6 +318,7 @@ mel_executor_run() {
   shared_path="$(mel_executor_profile_value "$profile_file" "paths.shared" "${staging_root}/shared")"
   current_link="$(mel_executor_profile_value "$profile_file" "paths.current" "${staging_root}/current")"
   logs_path="$(mel_executor_profile_value "$profile_file" "paths.logs" "${staging_root}/logs")"
+  repository_path="$(mel_executor_profile_value "$profile_file" "repository_path" "${staging_root}/repo")"
   profile_repository="$(mel_executor_profile_value "$profile_file" "repository" "")"
   if [[ -z "$release_id" ]]; then
     release_id="$(mel_release_generate_id)"
@@ -421,7 +423,7 @@ mel_executor_run() {
     previous_current="$(readlink "$current_link")"
   fi
 
-  if ! mel_release_prepare "${staging_root}/repo" "$release_root" >/dev/null; then
+  if ! mel_release_prepare "$repository_path" "$release_root" >/dev/null; then
     mel_output_error "$MEL_CODE_EXECUTOR_INVALID" "release preparation failed"
     return "$MEL_EXIT_ERROR"
   fi
@@ -447,6 +449,13 @@ mel_executor_run() {
     return "$MEL_EXIT_ERROR"
   fi
   step_json="$(mel_executor_step "drush" "passed" "drush plugin passed")"
+  steps_json="$(mel_executor_json_array_append "$steps_json" "$step_json")"
+
+  if ! mel_release_validate_integrity "$release_root" >/dev/null; then
+    mel_output_error "$MEL_CODE_EXECUTOR_INVALID" "release integrity validation failed"
+    return "$MEL_EXIT_ERROR"
+  fi
+  step_json="$(mel_executor_step "release_integrity" "passed" "release integrity and Drupal bootstrap passed")"
   steps_json="$(mel_executor_json_array_append "$steps_json" "$step_json")"
 
   if ! mel_executor_run_health "$profile_file" "$staging_root" "$releases_path" "$current_link" "$release_id" "$release_root" "false" "release"; then
