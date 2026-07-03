@@ -22,7 +22,7 @@
     "drush": "drush"
   },
   "verification": {
-    "mode": "profile"
+    "mode": "ssh"
   },
   "health_endpoints": [],
   "required_approvals": [],
@@ -75,62 +75,87 @@
     {
       "name": "ssh_connectivity",
       "type": "ssh_connectivity",
-      "mode": "profile"
+      "mode": "ssh"
+    },
+    {
+      "name": "remote_hostname",
+      "type": "remote_hostname",
+      "mode": "ssh"
+    },
+    {
+      "name": "remote_user",
+      "type": "remote_user",
+      "mode": "ssh"
     },
     {
       "name": "deployment_root",
       "type": "deployment_root_exists",
-      "mode": "profile"
+      "mode": "ssh"
+    },
+    {
+      "name": "repo",
+      "type": "repo_exists",
+      "mode": "ssh"
     },
     {
       "name": "releases",
       "type": "releases_exists",
-      "mode": "profile"
+      "mode": "ssh"
     },
     {
       "name": "shared",
       "type": "shared_exists",
-      "mode": "profile"
+      "mode": "ssh"
     },
     {
       "name": "current",
       "type": "current_exists",
-      "mode": "profile"
+      "mode": "ssh"
+    },
+    {
+      "name": "current_target",
+      "type": "current_target_exists",
+      "mode": "ssh"
     },
     {
       "name": "logs",
       "type": "logs_exists",
-      "mode": "profile"
+      "mode": "ssh"
     },
     {
       "name": "php_availability",
       "type": "php_availability",
-      "mode": "profile"
+      "mode": "ssh"
     },
     {
       "name": "composer_availability",
       "type": "composer_availability",
-      "mode": "profile"
+      "mode": "ssh"
     },
     {
       "name": "drush_availability",
       "type": "drush_availability",
-      "mode": "profile"
+      "mode": "ssh"
     },
     {
       "name": "writable_release_root",
       "type": "writable_release_root",
-      "mode": "profile"
+      "mode": "ssh"
     },
     {
       "name": "directory_layout",
       "type": "directory_layout",
-      "mode": "profile"
+      "mode": "ssh"
     },
     {
       "name": "readable_shared_resources",
       "type": "readable_shared_resources",
-      "mode": "profile"
+      "mode": "ssh"
+    },
+    {
+      "name": "disk_space",
+      "type": "disk_space",
+      "mode": "ssh"
     }
   ]
 }

@@ -10,13 +10,19 @@ mel_readiness_verify() {
   local environment="$1"
   local profile_file="$2"
   local check="${3:-all}"
+  local doctor_result
+  local doctor_status
 
-  python3 - "$environment" "$profile_file" "$check" <<'PY'
+  doctor_result="$(mel_doctor_run "$environment" "$profile_file" "json" 2>/dev/null)"
+  doctor_status=$?
+
+  python3 - "$environment" "$profile_file" "$check" "$doctor_status" "$doctor_result" <<'PY'
 import json
 import os
 import sys
 
-environment, profile_file, requested_check = sys.argv[1:4]
+environment, profile_file, requested_check, doctor_status_text, doctor_result_text = sys.argv[1:6]
+doctor_status = int(doctor_status_text)
 
 SUPPORTED_CHECKS = {"all", "profile", "layout", "health"}
 SUPPORTED_HEALTH = {"http_response", "drupal_status_endpoint", "directory_exists", "current_symlink"}
@@ -39,6 +45,14 @@ def load_profile(path):
     if not isinstance(loaded, dict):
         raise ReadinessError("profile root must be an object")
     return loaded
+
+
+def load_json_text(value):
+    try:
+        loaded = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def text(mapping, key, location):
@@ -149,9 +163,17 @@ def verification_mode(profile):
     if not isinstance(verification, dict):
         return "profile"
     mode = verification.get("mode", "profile")
-    if mode not in {"profile", "local"}:
+    if mode not in {"profile", "local", "ssh"}:
         raise ReadinessError(f"unsupported verification mode: {mode}")
     return mode
+
+
+def doctor_snapshot():
+    doctor = load_json_text(doctor_result_text)
+    snapshot = doctor.get("server", {}) if isinstance(doctor, dict) else {}
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    return doctor, snapshot
 
 
 def evaluate_layout(profile):
@@ -164,6 +186,29 @@ def evaluate_layout(profile):
         "logs": configured_path(profile, "logs"),
     }
     failures = []
+
+    if mode == "ssh":
+        doctor, snapshot = doctor_snapshot()
+        if doctor_status != 0 or doctor.get("status") != "passed":
+            add_failure(failures, "doctor", doctor.get("error") or snapshot.get("error") or "live doctor checks failed")
+        required = {
+            "deployment_root": "deployment_root_exists",
+            "repo": "repo_exists",
+            "releases": "releases_exists",
+            "shared": "shared_exists",
+            "current": "current_symlink_exists",
+            "current_target": "current_target_exists",
+            "logs": "logs_exists",
+        }
+        for label, key in required.items():
+            if snapshot.get(key) is not True:
+                add_failure(failures, label, f"{label} is missing or invalid on the live server")
+        if not snapshot.get("current_release"):
+            add_failure(failures, "current_release", "current release could not be identified")
+        if int(snapshot.get("release_count", 0)) < 1:
+            add_failure(failures, "release_count", "no releases were found on the live server")
+        if snapshot.get("readable_shared") is not True or snapshot.get("shared_resources_readable") is not True:
+            add_failure(failures, "shared_resources", "shared directory or configured shared resources are not readable")
 
     if mode == "local":
         for label in ("deployment_root", "releases", "shared", "logs"):
@@ -196,6 +241,10 @@ def evaluate_layout(profile):
         "status": "passed" if not failures else "failed",
         "mode": mode,
         "paths": paths,
+        "current_release": doctor_snapshot()[1].get("current_release", "") if mode == "ssh" else "",
+        "current_target": doctor_snapshot()[1].get("current_target_resolved", "") if mode == "ssh" else "",
+        "release_count": doctor_snapshot()[1].get("release_count", 0) if mode == "ssh" else 0,
+        "web_docroot": doctor_snapshot()[1].get("web_docroot", "") if mode == "ssh" else "",
         "failures": failures,
     }
 
@@ -242,6 +291,8 @@ def health_state(profile):
 def evaluate_health(profile):
     checks = list_value(profile, "health_checks", "profile")
     state = health_state(profile)
+    mode = verification_mode(profile)
+    snapshot = doctor_snapshot()[1] if mode == "ssh" else {}
     results = []
     failures = []
 
@@ -268,18 +319,38 @@ def evaluate_health(profile):
             message = f"Drupal status {status}" if isinstance(status, str) else "Drupal status missing"
         elif kind == "directory_exists":
             path = check.get("path") or configured_path(profile, "deployment_root")
-            passed = state["directory_exists"].get(path) is True
+            if mode == "ssh" and path == configured_path(profile, "deployment_root"):
+                passed = snapshot.get("deployment_root_exists") is True
+            else:
+                passed = state["directory_exists"].get(path) is True
             message = f"directory {path} exists" if passed else f"directory {path} missing"
         else:
             link = check.get("link") or configured_path(profile, "current")
-            target = check.get("target") or state["current_symlink"].get(link)
-            passed = state["current_symlink"].get(link) == target
+            target = check.get("target") or snapshot.get("current_target_resolved") or state["current_symlink"].get(link)
+            actual = snapshot.get("current_target_resolved") if mode == "ssh" else state["current_symlink"].get(link)
+            passed = actual == target
             message = f"{link} points to {target}" if passed else f"{link} does not point to {target}"
 
         result = {"name": name, "type": kind, "status": "passed" if passed else "failed", "message": message}
         results.append(result)
         if not passed:
             add_failure(failures, name, message)
+
+    if mode == "ssh":
+        passed = snapshot.get("drupal_bootstrap_capable") is True
+        message = (
+            f"Drupal bootstrap files detected in {snapshot.get('web_docroot')}"
+            if passed
+            else "Drupal bootstrap files were not detected in the live current release"
+        )
+        results.append({
+            "name": "drupal_bootstrap_capability",
+            "type": "drupal_bootstrap_capability",
+            "status": "passed" if passed else "failed",
+            "message": message,
+        })
+        if not passed:
+            add_failure(failures, "drupal_bootstrap_capability", message)
 
     return {
         "status": "passed" if not failures else "failed",
@@ -303,6 +374,9 @@ try:
         "checks": {},
         "failures": [],
     }
+    doctor_json, snapshot = doctor_snapshot()
+    if snapshot:
+        result["server"] = snapshot
 
     checks_to_run = ["profile", "layout", "health"] if requested_check == "all" else [requested_check]
     for name in checks_to_run:
@@ -368,6 +442,9 @@ def collect_blockers(label, value):
     for failure in value.get("failures", []):
         if isinstance(failure, dict):
             blockers.append(f"{label}: {failure.get('message', failure)}")
+    for check in value.get("checks", []):
+        if isinstance(check, dict) and check.get("status") == "failed":
+            blockers.append(f"{label}: {check.get('message', check)}")
     if value.get("error"):
         blockers.append(f"{label}: {value['error']}")
     return blockers
@@ -398,6 +475,11 @@ verify_code, verify_text, _ = run([mel, "verify", environment, "--profile", prof
 
 doctor_json = load_json(doctor_text)
 verify_json = load_json(verify_text)
+server_json = {}
+if isinstance(doctor_json, dict) and isinstance(doctor_json.get("server"), dict):
+    server_json = doctor_json["server"]
+elif isinstance(verify_json, dict) and isinstance(verify_json.get("server"), dict):
+    server_json = verify_json["server"]
 layout_json = verify_json.get("checks", {}).get("layout", {}) if isinstance(verify_json, dict) else {}
 health_json = verify_json.get("checks", {}).get("health", {}) if isinstance(verify_json, dict) else {}
 
@@ -419,12 +501,26 @@ if status_from_json(layout_json) != "passed":
 if status_from_json(health_json) != "passed":
     blockers.extend(collect_blockers("health", health_json))
 
+deduplicated_blockers = []
+seen_blockers = set()
+for blocker in blockers:
+    if blocker not in seen_blockers:
+        deduplicated_blockers.append(blocker)
+        seen_blockers.add(blocker)
+blockers = deduplicated_blockers
 ready = not blockers
 report = {
     "environment": environment,
     "repository": profile.get("repository", "unknown"),
     "framework_version": framework_version,
     "profile_version": profile.get("profile_version", "unknown"),
+    "server_hostname": server_json.get("hostname", "unknown"),
+    "current_release": server_json.get("current_release", "unknown"),
+    "current_symlink": server_json.get("current_target_resolved") or server_json.get("current_target", "unknown"),
+    "disk_usage": server_json.get("disk_usage", "unknown"),
+    "php_version": server_json.get("php_version", "unknown"),
+    "composer_version": server_json.get("composer_version", "unknown"),
+    "drush_version": server_json.get("drush_version", "unknown"),
     "doctor_status": status_from_json(doctor_json),
     "health_status": status_from_json(health_json),
     "layout_status": status_from_json(layout_json),
@@ -438,13 +534,20 @@ print(f"Environment: {report['environment']}")
 print(f"Repository: {report['repository']}")
 print(f"Framework Version: {report['framework_version']}")
 print(f"Profile Version: {report['profile_version']}")
+print(f"Server Hostname: {report['server_hostname']}")
+print(f"Current Release: {report['current_release']}")
+print(f"Current Symlink: {report['current_symlink']}")
+print(f"Disk Usage: {report['disk_usage']}")
+print(f"PHP Version: {report['php_version']}")
+print(f"Composer Version: {report['composer_version']}")
+print(f"Drush Version: {report['drush_version']}")
 print(f"Doctor Status: {report['doctor_status']}")
 print(f"Health Status: {report['health_status']}")
 print(f"Layout Status: {report['layout_status']}")
 print(f"Policy Status: {report['policy_status']}")
 print(f"Deployment Ready: {report['deployment_ready']}")
 if blockers:
-    print("Blocking Reasons:")
+    print("Blocking Issues:")
     for blocker in blockers:
         print(f"- {blocker}")
 print("")

@@ -706,13 +706,15 @@ test_doctor_staging() {
   local status
   local output
 
-  run_command "$output_file" "$MEL" doctor staging
+  run_command "$output_file" env MEL_DOCTOR_SSH_MOCK_OUTPUT="${DOCTOR_TEST_DIR}/live-audit.tsv" "$MEL" doctor staging
   status=$?
   output="$(<"$output_file")"
 
   assert_exit "doctor staging exits success" 0 "$status"
   assert_contains "doctor staging prints human output" "$output" "Server doctor"
   assert_contains "doctor staging prints JSON output" "$output" '"environment": "staging"'
+  assert_contains "doctor staging reports live hostname" "$output" "staging-web-01"
+  assert_contains "doctor staging reports current release" "$output" '"current_release": "20260703120000"'
 }
 
 test_doctor_production_json() {
@@ -812,7 +814,7 @@ for path in sys.argv[1:]:
     if any(word in encoded for word in secret_words):
         print(f"{path} appears to contain secret material")
         sys.exit(2)
-    if any(check.get("mode") not in {"mock", "profile"} for check in profile["doctor_checks"]):
+    if any(check.get("mode") not in {"mock", "profile", "ssh"} for check in profile["doctor_checks"]):
         print(f"{path} contains unsupported doctor checks")
         sys.exit(2)
 
@@ -950,6 +952,21 @@ test_verify_missing_releases() {
   assert_contains "verify missing releases reports directory" "$output" "releases directory is missing"
 }
 
+test_verify_live_mock_output() {
+  local output_file="${READINESS_TEST_DIR}/.live-mock.out"
+  local status
+  local output
+
+  run_command "$output_file" env MEL_DOCTOR_SSH_MOCK_OUTPUT="${DOCTOR_TEST_DIR}/live-audit.tsv" "$MEL" verify staging --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "verify live mock exits success" 0 "$status"
+  assert_contains "verify live mock reports current release" "$output" '"current_release": "20260703120000"'
+  assert_contains "verify live mock reports release count" "$output" '"release_count": 3'
+  assert_contains "verify live mock reports Drupal bootstrap" "$output" '"drupal_bootstrap_capability"'
+}
+
 test_doctor_readiness_failure() {
   local fixture
   local root
@@ -1008,12 +1025,28 @@ test_report_generation() {
   assert_contains "report includes profile version" "$output" "Profile Version: 1"
 }
 
+test_report_live_mock_output() {
+  local output_file="${READINESS_TEST_DIR}/.report-live.out"
+  local status
+  local output
+
+  run_command "$output_file" env MEL_DOCTOR_SSH_MOCK_OUTPUT="${DOCTOR_TEST_DIR}/live-audit.tsv" "$MEL" report staging
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "live report generation exits success" 0 "$status"
+  assert_contains "live report includes hostname" "$output" "Server Hostname: staging-web-01"
+  assert_contains "live report includes current release" "$output" "Current Release: 20260703120000"
+  assert_contains "live report includes PHP version" "$output" "PHP Version: PHP 8.3.10"
+  assert_contains "live report includes deployment ready" "$output" "Deployment Ready: READY"
+}
+
 test_execute_dry_run_staging() {
   local output_file="${EXECUTOR_TEST_DIR}/.dry-run.out"
   local status
   local output
 
-  run_command "$output_file" env MEL_RELEASE_TIMESTAMP=20260703194512 "$MEL" execute staging --dry-run
+  run_command "$output_file" env MEL_DOCTOR_SSH_MOCK_OUTPUT="${DOCTOR_TEST_DIR}/live-audit.tsv" MEL_RELEASE_TIMESTAMP=20260703194512 "$MEL" execute staging --dry-run
   status=$?
   output="$(<"$output_file")"
 
@@ -1356,9 +1389,11 @@ test_verify_invalid_layout
 test_verify_broken_current_symlink
 test_verify_missing_shared
 test_verify_missing_releases
+test_verify_live_mock_output
 test_doctor_readiness_failure
 test_verify_health_failure
 test_report_generation
+test_report_live_mock_output
 test_execute_dry_run_staging
 test_execute_rejects_production
 test_successful_deployment
