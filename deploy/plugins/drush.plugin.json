@@ -1,0 +1,12 @@
+{
+  "name": "drush-contract",
+  "type": "drush",
+  "executes": false,
+  "inputs": [
+    "execution_plan",
+    "deployment_profile"
+  ],
+  "outputs": [
+    "drush_operation_contract"
+  ]
+}

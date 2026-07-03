@@ -1,18 +1,18 @@
 # Architecture
 
-mel-deployment currently implements local validation, resolution, and planner engines. It is not a deployment runtime.
+mel-deployment currently implements local validation, resolution, planner, policy, dry-run, doctor, health, and plugin-contract frameworks. It is not a deployment runtime.
 
 ## Principles
 
 - One executable, `deploy/bin/mel`, owns the command interface.
 - New behavior should be exposed through subcommands, not additional binaries.
-- Validation, resolution, and planner libraries live under `deploy/lib/` and are reusable by future phases.
+- Validation, resolution, planner, policy, dry-run, doctor, health, and plugin libraries live under `deploy/lib/` and are reusable by future phases.
 - The engine fails with structured `success`, `warning`, or `error` output and stable exit codes.
-- No current command may deploy, roll back, connect to servers, run SSH, run rsync, run Composer, run Drush, modify remote filesystems, or inspect remote systems.
+- No current command may deploy, roll back, connect to servers, run SSH, run rsync, run Composer, run Drush, modify remote filesystems, or modify remote systems.
 
 ## Components
 
-- `deploy/bin/mel` routes `validate`, `resolve`, `plan`, `info`, and `version` subcommands.
+- `deploy/bin/mel` routes `validate`, `resolve`, `plan`, `policy`, `dry-run`, `doctor`, `info`, and `version` subcommands.
 - `deploy/lib/common.sh` provides shared repository, usage, and version helpers.
 - `deploy/lib/errors.sh` defines status names, error codes, and exit codes.
 - `deploy/lib/output.sh` formats command results and details.
@@ -21,6 +21,11 @@ mel-deployment currently implements local validation, resolution, and planner en
 - `deploy/lib/paths.sh` validates path strings.
 - `deploy/lib/resolver.sh` converts validated manifests into canonical deployment models.
 - `deploy/lib/planner.sh` converts resolved deployment models into deterministic execution plans.
+- `deploy/lib/policy.sh` evaluates read-only deployment policy from a plan and profile.
+- `deploy/lib/dryrun.sh` renders a plan as simulation text without executing it.
+- `deploy/lib/doctor.sh` validates mock doctor contracts for staging and production.
+- `deploy/lib/health.sh` evaluates supplied health state for supported checks.
+- `deploy/lib/plugins.sh` validates non-executable plugin interface contracts.
 
 ## Validation Flow
 
@@ -74,6 +79,30 @@ Planner
 Execution Plan
 ```
 
+## Readiness Flow
+
+```text
+Manifest
+    ↓
+Validation
+    ↓
+Resolution
+    ↓
+Planner
+    ↓
+Policy
+    ↓
+Dry Run
+    ↓
+Doctor
+    ↓
+Executor (future)
+    ↓
+Rollback (future)
+```
+
+Policy evaluates environment, local repository state, deployment profile, approvals, validation success, and planner success. Dry-run renders the plan only. Doctor validates mock check definitions only. Health checks evaluate supplied state only.
+
 ## Path Policy
 
 Path validation rejects:
@@ -88,4 +117,4 @@ The engine does not validate server path existence in this phase. Resolution may
 
 ## Non-Goals
 
-This phase intentionally excludes deployment, rollback, SSH, rsync, Composer, Drush, filesystem modification outside caller-requested local output, remote access, server validation, repository inspection, release creation, directory creation, and execution of planned actions.
+This phase intentionally excludes deployment, rollback, SSH commands that change state, rsync, SCP, Composer execution, Drush execution, filesystem modification outside caller-requested local output, remote modification, release creation, directory creation, symlink switching, and execution of planned actions.

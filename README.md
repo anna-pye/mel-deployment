@@ -1,8 +1,8 @@
 # mel-deployment
 
-mel-deployment is the local validation, resolution, and planning foundation for a future deployment framework.
+mel-deployment is the local validation, resolution, planning, policy, dry-run, doctor, health, and plugin-contract foundation for a future deployment framework.
 
-The current implementation validates manifests, resolves validated manifests into canonical deployment models, and converts resolved models into deterministic execution plans. It does not deploy, roll back, connect to servers, run SSH, run rsync, run Composer, run Drush, modify remote filesystems, or perform release orchestration.
+The current implementation validates manifests, resolves validated manifests into canonical deployment models, converts resolved models into deterministic execution plans, evaluates read-only deployment policy, renders dry-run simulations, validates mock doctor contracts, evaluates supplied health state, and validates plugin contracts. It does not deploy, roll back, connect to servers, run SSH, run rsync, run Composer, run Drush, modify remote filesystems, or perform release orchestration.
 
 ## Command Interface
 
@@ -12,11 +12,14 @@ Use the single executable:
 deploy/bin/mel validate
 deploy/bin/mel resolve --manifest examples/hold-production.yml
 deploy/bin/mel plan --manifest examples/hold-production.yml
+deploy/bin/mel policy --manifest examples/hold-production.yml --approval business --approval technical --approval release_manager
+deploy/bin/mel dry-run --manifest examples/hold-production.yml
+deploy/bin/mel doctor staging
 deploy/bin/mel info
 deploy/bin/mel version
 ```
 
-The framework is designed to scale through subcommands. Do not add separate binaries such as `mel-validate`, `mel-resolve`, `mel-plan`, or `mel-info`.
+The framework is designed to scale through subcommands. Do not add separate binaries such as `mel-validate`, `mel-resolve`, `mel-plan`, `mel-policy`, `mel-dry-run`, `mel-doctor`, or `mel-info`.
 
 ## Validation Scope
 
@@ -81,6 +84,16 @@ Execution Plan
 
 See `docs/planner-engine.md` for the canonical plan format and rejection rules.
 
+## Readiness Framework Scope
+
+- `mel policy` emits structured JSON only and evaluates environment, repository state, deployment profile, approvals, validation success, and planner success.
+- `mel dry-run` prints a human-readable simulation from an execution plan and never executes the plan.
+- `mel doctor` validates staging or production doctor contracts in mock mode and returns human-readable and JSON output.
+- `deploy/lib/health.sh` evaluates supplied health state for supported check types without network or filesystem probes.
+- `deploy/lib/plugins.sh` validates non-executable plugin contracts in `deploy/plugins/`.
+
+See `docs/policy-engine.md`, `docs/dry-run.md`, `docs/server-doctor.md`, and `docs/deployment-lifecycle.md`.
+
 ## Exit Codes
 
 - `0` indicates `success`.
@@ -91,10 +104,12 @@ See `docs/planner-engine.md` for the canonical plan format and rejection rules.
 
 - `.github/workflows/` contains validation-only GitHub Actions workflows.
 - `deploy/bin/mel` is the single command entrypoint.
-- `deploy/lib/` contains reusable shell validation, resolution, and planner libraries.
+- `deploy/lib/` contains reusable shell validation, resolution, planner, policy, dry-run, doctor, health, and plugin-contract libraries.
+- `deploy/plugins/` contains non-executable plugin interface contracts.
 - `docs/` contains architecture and operational model documentation.
 - `examples/` contains local example manifests, resolved models, and execution plans.
 - `manifests/` contains the default local validation manifest.
+- `profiles/` contains non-secret staging and production deployment profiles.
 - `schemas/` contains the bundled manifest schema.
 - `tests/` contains deterministic local unit tests.
 
@@ -109,6 +124,7 @@ bash tests/run-tests.sh
 deploy/bin/mel validate
 deploy/bin/mel resolve --manifest examples/hold-production.yml
 deploy/bin/mel plan --manifest examples/hold-production.yml
+deploy/bin/mel dry-run --manifest examples/hold-production.yml
 ```
 
 Version: `0.1.0-dev`

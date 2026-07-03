@@ -1,0 +1,12 @@
+{
+  "name": "shared-contract",
+  "type": "shared",
+  "executes": false,
+  "inputs": [
+    "execution_plan",
+    "deployment_profile"
+  ],
+  "outputs": [
+    "shared_directory_contract"
+  ]
+}

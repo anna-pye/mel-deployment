@@ -1,5 +1,5 @@
 # Validation-only workflow.
-# This workflow must not deploy, access servers, or run deployment tooling.
+# This workflow must not deploy, access servers, or run deployment tooling that changes state.
 name: Validate
 
 on:
@@ -32,3 +32,20 @@ jobs:
 
       - name: Plan example manifest
         run: deploy/bin/mel plan --manifest examples/hold-production.yml
+
+      - name: Evaluate example policy
+        run: |
+          deploy/bin/mel policy \
+            --manifest examples/hold-production.yml \
+            --repository-state clean \
+            --approval business \
+            --approval technical \
+            --approval release_manager
+
+      - name: Dry-run example manifest
+        run: deploy/bin/mel dry-run --manifest examples/hold-production.yml
+
+      - name: Run mock doctor checks
+        run: |
+          deploy/bin/mel doctor staging --json
+          deploy/bin/mel doctor production --json

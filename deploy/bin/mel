@@ -21,6 +21,12 @@ export MEL_ROOT
 . "${MEL_DEPLOY_DIR}/lib/resolver.sh"
 # shellcheck source=../lib/planner.sh
 . "${MEL_DEPLOY_DIR}/lib/planner.sh"
+# shellcheck source=../lib/policy.sh
+. "${MEL_DEPLOY_DIR}/lib/policy.sh"
+# shellcheck source=../lib/dryrun.sh
+. "${MEL_DEPLOY_DIR}/lib/dryrun.sh"
+# shellcheck source=../lib/doctor.sh
+. "${MEL_DEPLOY_DIR}/lib/doctor.sh"
 # shellcheck source=../lib/common.sh
 . "${MEL_DEPLOY_DIR}/lib/common.sh"
 
@@ -232,6 +238,234 @@ mel_command_info() {
   return "$MEL_EXIT_SUCCESS"
 }
 
+mel_command_policy() {
+  local manifest_file
+  local schema_file
+  local profile_file=""
+  local repository_state=""
+  local approvals=()
+  local approvals_csv
+  local resolved_model
+  local execution_plan
+  local environment
+  local validation_success="true"
+  local planner_success="true"
+  local repository_state_status
+
+  manifest_file="$(mel_manifest_default_file)"
+  schema_file="$(mel_manifest_default_schema)"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --manifest)
+        if [[ $# -lt 2 ]]; then
+          printf '{\n  "decision": "blocked",\n  "error": "--manifest requires a file path"\n}\n'
+          return "$MEL_EXIT_ERROR"
+        fi
+        manifest_file="$2"
+        shift 2
+        ;;
+      --schema)
+        if [[ $# -lt 2 ]]; then
+          printf '{\n  "decision": "blocked",\n  "error": "--schema requires a file path"\n}\n'
+          return "$MEL_EXIT_ERROR"
+        fi
+        schema_file="$2"
+        shift 2
+        ;;
+      --profile)
+        if [[ $# -lt 2 ]]; then
+          printf '{\n  "decision": "blocked",\n  "error": "--profile requires a file path"\n}\n'
+          return "$MEL_EXIT_ERROR"
+        fi
+        profile_file="$2"
+        shift 2
+        ;;
+      --repository-state)
+        if [[ $# -lt 2 ]]; then
+          printf '{\n  "decision": "blocked",\n  "error": "--repository-state requires clean, dirty, or unknown"\n}\n'
+          return "$MEL_EXIT_ERROR"
+        fi
+        repository_state="$2"
+        shift 2
+        ;;
+      --approval)
+        if [[ $# -lt 2 ]]; then
+          printf '{\n  "decision": "blocked",\n  "error": "--approval requires a name"\n}\n'
+          return "$MEL_EXIT_ERROR"
+        fi
+        approvals+=("$2")
+        shift 2
+        ;;
+      --help|-h)
+        mel_usage
+        return "$MEL_EXIT_SUCCESS"
+        ;;
+      *)
+        printf '{\n  "decision": "blocked",\n  "error": "unknown policy option: %s"\n}\n' "$1"
+        return "$MEL_EXIT_ERROR"
+        ;;
+    esac
+  done
+
+  if ! mel_validate_repository_metadata >/dev/null 2>&1; then
+    printf '{\n  "decision": "blocked",\n  "error": "repository metadata validation failed"\n}\n'
+    return "$MEL_EXIT_ERROR"
+  fi
+
+  if ! mel_manifest_validate "$manifest_file" "$schema_file" >/dev/null 2>&1; then
+    validation_success="false"
+  fi
+
+  if ! resolved_model="$(mel_resolver_build_model "$manifest_file" 2>/dev/null)"; then
+    planner_success="false"
+    execution_plan='{"plan_version":1,"deployment_id":"unknown","environment":"unknown","steps":[]}'
+  elif ! execution_plan="$(mel_planner_build_plan "$resolved_model" 2>/dev/null)"; then
+    planner_success="false"
+    execution_plan='{"plan_version":1,"deployment_id":"unknown","environment":"unknown","steps":[]}'
+  fi
+
+  if [[ -z "$profile_file" ]]; then
+    environment="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("environment", "unknown"))' "$execution_plan")"
+    profile_file="$(mel_policy_default_profile_file "$environment")"
+  fi
+
+  if [[ -z "$repository_state" ]]; then
+    repository_state="$(mel_policy_repository_state)"
+    repository_state_status=$?
+    if [[ "$repository_state_status" -gt "$MEL_EXIT_WARNING" ]]; then
+      repository_state="unknown"
+    fi
+  fi
+
+  approvals_csv="$(IFS=,; printf '%s' "${approvals[*]}")"
+  mel_policy_evaluate "$execution_plan" "$profile_file" "$repository_state" "$validation_success" "$planner_success" "$approvals_csv"
+}
+
+mel_command_dry_run() {
+  local manifest_file
+  local schema_file
+  local plan_file=""
+  local resolved_model
+  local execution_plan
+
+  manifest_file="$(mel_manifest_default_file)"
+  schema_file="$(mel_manifest_default_schema)"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --manifest)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--manifest requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        manifest_file="$2"
+        shift 2
+        ;;
+      --schema)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--schema requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        schema_file="$2"
+        shift 2
+        ;;
+      --plan)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--plan requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        plan_file="$2"
+        shift 2
+        ;;
+      --help|-h)
+        mel_usage
+        return "$MEL_EXIT_SUCCESS"
+        ;;
+      *)
+        mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "unknown dry-run option: $1"
+        return "$MEL_EXIT_ERROR"
+        ;;
+    esac
+  done
+
+  mel_validate_repository_metadata || return "$?"
+
+  if [[ -n "$plan_file" ]]; then
+    if [[ ! -r "$plan_file" ]]; then
+      mel_output_error "$MEL_CODE_DRY_RUN_INVALID" "execution plan file is missing or unreadable"
+      return "$MEL_EXIT_ERROR"
+    fi
+    execution_plan="$(<"$plan_file")"
+  else
+    mel_manifest_validate "$manifest_file" "$schema_file" || return "$?"
+    if ! resolved_model="$(mel_resolver_build_model "$manifest_file")"; then
+      mel_output_error "$MEL_CODE_RESOLUTION_INVALID" "$resolved_model"
+      return "$MEL_EXIT_ERROR"
+    fi
+    if ! execution_plan="$(mel_planner_build_plan "$resolved_model")"; then
+      mel_output_error "$MEL_CODE_PLAN_INVALID" "$execution_plan"
+      return "$MEL_EXIT_ERROR"
+    fi
+  fi
+
+  if ! mel_planner_validate_plan "$execution_plan" >/dev/null; then
+    mel_output_error "$MEL_CODE_DRY_RUN_INVALID" "execution plan is invalid"
+    return "$MEL_EXIT_ERROR"
+  fi
+
+  mel_dryrun_render_plan "$execution_plan"
+}
+
+mel_command_doctor() {
+  local environment="${1:-}"
+  local profile_file=""
+  local output_format="both"
+
+  if [[ -z "$environment" ]]; then
+    mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "doctor requires staging or production"
+    return "$MEL_EXIT_ERROR"
+  fi
+  shift
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --profile)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--profile requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        profile_file="$2"
+        shift 2
+        ;;
+      --json)
+        output_format="json"
+        shift
+        ;;
+      --human)
+        output_format="human"
+        shift
+        ;;
+      --help|-h)
+        mel_usage
+        return "$MEL_EXIT_SUCCESS"
+        ;;
+      *)
+        mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "unknown doctor option: $1"
+        return "$MEL_EXIT_ERROR"
+        ;;
+    esac
+  done
+
+  mel_validate_repository_metadata || return "$?"
+
+  if [[ -z "$profile_file" ]]; then
+    profile_file="$(mel_doctor_default_profile_file "$environment")"
+  fi
+
+  mel_doctor_run "$environment" "$profile_file" "$output_format"
+}
+
 mel_command_version() {
   local version
   local version_status
@@ -264,6 +498,18 @@ main() {
     plan)
       shift
       mel_command_plan "$@"
+      ;;
+    policy)
+      shift
+      mel_command_policy "$@"
+      ;;
+    dry-run)
+      shift
+      mel_command_dry_run "$@"
+      ;;
+    doctor)
+      shift
+      mel_command_doctor "$@"
       ;;
     info)
       shift

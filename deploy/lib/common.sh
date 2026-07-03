@@ -18,6 +18,9 @@ Usage:
   mel validate [--manifest FILE] [--schema FILE]
   mel resolve [--manifest FILE] [--schema FILE] [--output FILE] [--pretty]
   mel plan [--manifest FILE] [--schema FILE] [--output FILE] [--pretty]
+  mel policy [--manifest FILE] [--schema FILE] [--profile FILE] [--approval NAME]...
+  mel dry-run [--manifest FILE] [--schema FILE] [--plan FILE]
+  mel doctor ENVIRONMENT [--profile FILE] [--json]
   mel info
   mel version
 
@@ -25,6 +28,9 @@ Commands:
   validate  Validate manifest, schema, paths, and repository metadata.
   resolve   Convert a validated manifest into a canonical deployment model.
   plan      Convert a resolved deployment model into an execution plan.
+  policy    Evaluate whether a planned deployment is allowed.
+  dry-run   Print a read-only simulation for an execution plan.
+  doctor    Run read-only deployment readiness checks for an environment.
   info      Print local engine metadata.
   version   Print the engine version.
 EOF

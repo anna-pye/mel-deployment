@@ -5,10 +5,20 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 VALIDATION_TEST_DIR="${ROOT_DIR}/tests/validation"
 RESOLVER_TEST_DIR="${ROOT_DIR}/tests/resolver"
 PLANNER_TEST_DIR="${ROOT_DIR}/tests/planner"
+POLICY_TEST_DIR="${ROOT_DIR}/tests/policy"
+DRYRUN_TEST_DIR="${ROOT_DIR}/tests/dryrun"
+DOCTOR_TEST_DIR="${ROOT_DIR}/tests/doctor"
+HEALTH_TEST_DIR="${ROOT_DIR}/tests/health"
+PLUGIN_TEST_DIR="${ROOT_DIR}/tests/plugins"
+PROFILE_TEST_DIR="${ROOT_DIR}/tests/profiles"
 MEL="${ROOT_DIR}/deploy/bin/mel"
 
 # shellcheck source=../deploy/lib/planner.sh
 . "${ROOT_DIR}/deploy/lib/planner.sh"
+# shellcheck source=../deploy/lib/health.sh
+. "${ROOT_DIR}/deploy/lib/health.sh"
+# shellcheck source=../deploy/lib/plugins.sh
+. "${ROOT_DIR}/deploy/lib/plugins.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -415,12 +425,187 @@ test_plan_output_option() {
   assert_file_equals "planner output file is stable JSON" "${ROOT_DIR}/examples/plans/hold-production.plan.json" "$plan_file"
 }
 
+test_policy_allowed() {
+  local output_file="${POLICY_TEST_DIR}/.allowed.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" policy --manifest "${ROOT_DIR}/examples/hold-production.yml" --repository-state clean --approval business --approval technical --approval release_manager
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "policy exits success when allowed" 0 "$status"
+  assert_contains "policy reports allowed decision" "$output" '"decision": "allowed"'
+}
+
+test_policy_missing_approval() {
+  local output_file="${POLICY_TEST_DIR}/.missing-approval.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" policy --manifest "${ROOT_DIR}/examples/hold-production.yml" --repository-state clean --approval technical
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "policy blocks missing approvals" 2 "$status"
+  assert_contains "policy reports missing approvals" "$output" '"decision": "blocked"'
+  assert_contains "policy names missing approvals" "$output" "missing required approvals:"
+}
+
+test_dry_run_manifest() {
+  local output_file="${DRYRUN_TEST_DIR}/.manifest.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" dry-run --manifest "${ROOT_DIR}/examples/hold-production.yml"
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "dry-run manifest exits success" 0 "$status"
+  assert_contains "dry-run includes manifest validation" "$output" "✓ Validate manifest"
+  assert_contains "dry-run includes policy validation" "$output" "✓ Validate policy"
+  assert_contains "dry-run confirms no execution" "$output" "No deployment actions were executed."
+}
+
+test_dry_run_plan_file() {
+  local output_file="${DRYRUN_TEST_DIR}/.plan.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" dry-run --plan "${ROOT_DIR}/examples/plans/hold-production.plan.json"
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "dry-run plan file exits success" 0 "$status"
+  assert_contains "dry-run includes switch current simulation" "$output" "✓ Switch current"
+}
+
+test_doctor_staging() {
+  local output_file="${DOCTOR_TEST_DIR}/.staging.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" doctor staging
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "doctor staging exits success" 0 "$status"
+  assert_contains "doctor staging prints human output" "$output" "Server doctor"
+  assert_contains "doctor staging prints JSON output" "$output" '"environment": "staging"'
+}
+
+test_doctor_production_json() {
+  local output_file="${DOCTOR_TEST_DIR}/.production-json.out"
+  local status
+  local output
+
+  run_command "$output_file" "$MEL" doctor production --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "doctor production JSON exits success" 0 "$status"
+  assert_contains "doctor production reports passed" "$output" '"status": "passed"'
+  assert_contains "doctor production uses mock checks" "$output" '"mode": "mock"'
+}
+
+test_health_success() {
+  local output
+  local status
+  local checks
+  local state
+
+  checks='[{"name":"public_http","type":"http_response"},{"name":"drupal_status","type":"drupal_status_endpoint"},{"name":"shared","type":"directory_exists","path":"/app/shared"},{"name":"release","type":"release_exists","release":"20260703153045"},{"name":"current","type":"current_symlink","link":"/app/current","target":"/app/releases/20260703153045"}]'
+  state='{"http_response":{"public_http":200},"drupal_status_endpoint":{"drupal_status":"ok"},"directory_exists":{"/app/shared":true},"release_exists":{"20260703153045":true},"current_symlink":{"/app/current":"/app/releases/20260703153045"}}'
+  output="$(mel_health_evaluate_checks "$checks" "$state" 2>&1)"
+  status=$?
+
+  assert_exit "health checks pass with supplied state" 0 "$status"
+  assert_contains "health reports passed" "$output" '"status": "passed"'
+}
+
+test_health_failure() {
+  local output
+  local status
+  local checks
+  local state
+
+  checks='[{"name":"public_http","type":"http_response"}]'
+  state='{"http_response":{"public_http":500}}'
+  output="$(mel_health_evaluate_checks "$checks" "$state" 2>&1)"
+  status=$?
+
+  assert_exit "health checks fail closed" 2 "$status"
+  assert_contains "health reports failed" "$output" '"status": "failed"'
+}
+
+test_plugin_contracts_load() {
+  local output
+  local status
+
+  output="$(mel_plugins_validate_contracts "${ROOT_DIR}/deploy/plugins" 2>&1)"
+  status=$?
+
+  assert_exit "plugin contracts load" 0 "$status"
+  assert_contains "plugin loader reports passed" "$output" '"status": "passed"'
+  assert_contains "plugin loader includes switch current" "$output" "switch-current-contract"
+}
+
+test_profiles_are_non_secret_contracts() {
+  local output_file="${PROFILE_TEST_DIR}/.profiles.out"
+  local status
+  local output
+
+  python3 - "${ROOT_DIR}/profiles/staging.json" "${ROOT_DIR}/profiles/production.json" >"$output_file" 2>&1 <<'PY'
+import json
+import sys
+
+required_keys = {
+    "profile",
+    "environment",
+    "validation_profile",
+    "policy_profile",
+    "required_approvals",
+    "health_checks",
+    "doctor_checks",
+}
+secret_words = ("password", "secret", "token", "credential", "private_key")
+
+for path in sys.argv[1:]:
+    with open(path, "r", encoding="utf-8") as handle:
+        profile = json.load(handle)
+    missing = sorted(required_keys - set(profile))
+    if missing:
+        print(f"{path} missing keys: {', '.join(missing)}")
+        sys.exit(2)
+    encoded = json.dumps(profile).lower()
+    if any(word in encoded for word in secret_words):
+        print(f"{path} appears to contain secret material")
+        sys.exit(2)
+    if any(check.get("mode") != "mock" for check in profile["doctor_checks"]):
+        print(f"{path} contains non-mock doctor checks")
+        sys.exit(2)
+
+print("profiles ok")
+PY
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "profiles validate as non-secret contracts" 0 "$status"
+  assert_contains "profiles report ok" "$output" "profiles ok"
+}
+
 cleanup() {
   rm -f "${VALIDATION_TEST_DIR}"/.*.out
   rm -f "${RESOLVER_TEST_DIR}"/.*.out
   rm -f "${RESOLVER_TEST_DIR}"/.resolved.json
   rm -f "${PLANNER_TEST_DIR}"/.*.out
   rm -f "${PLANNER_TEST_DIR}"/.planned.json
+  rm -f "${POLICY_TEST_DIR}"/.*.out
+  rm -f "${DRYRUN_TEST_DIR}"/.*.out
+  rm -f "${DOCTOR_TEST_DIR}"/.*.out
+  rm -f "${HEALTH_TEST_DIR}"/.*.out
+  rm -f "${PLUGIN_TEST_DIR}"/.*.out
+  rm -f "${PROFILE_TEST_DIR}"/.*.out
 }
 
 cleanup
@@ -449,6 +634,16 @@ test_missing_dependencies
 test_invalid_execution_order
 test_malformed_resolved_model
 test_plan_output_option
+test_policy_allowed
+test_policy_missing_approval
+test_dry_run_manifest
+test_dry_run_plan_file
+test_doctor_staging
+test_doctor_production_json
+test_health_success
+test_health_failure
+test_plugin_contracts_load
+test_profiles_are_non_secret_contracts
 cleanup
 
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"

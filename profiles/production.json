@@ -1,0 +1,75 @@
+{
+  "profile": "production",
+  "environment": "production",
+  "validation_profile": "production",
+  "policy_profile": "production",
+  "required_approvals": [
+    "business",
+    "technical",
+    "release_manager"
+  ],
+  "health_checks": [
+    {
+      "name": "production_http_response",
+      "type": "http_response",
+      "required": true
+    },
+    {
+      "name": "production_drupal_status",
+      "type": "drupal_status_endpoint",
+      "required": true
+    },
+    {
+      "name": "production_current_symlink",
+      "type": "current_symlink",
+      "required": true
+    }
+  ],
+  "doctor_checks": [
+    {
+      "name": "ssh_connectivity",
+      "type": "ssh_connectivity",
+      "mode": "mock"
+    },
+    {
+      "name": "php_version",
+      "type": "php_version",
+      "mode": "mock"
+    },
+    {
+      "name": "composer_availability",
+      "type": "composer_availability",
+      "mode": "mock"
+    },
+    {
+      "name": "drush_availability",
+      "type": "drush_availability",
+      "mode": "mock"
+    },
+    {
+      "name": "writable_directories",
+      "type": "writable_directories",
+      "mode": "mock"
+    },
+    {
+      "name": "directory_layout",
+      "type": "directory_layout",
+      "mode": "mock"
+    },
+    {
+      "name": "required_symlinks",
+      "type": "required_symlinks",
+      "mode": "mock"
+    },
+    {
+      "name": "disk_space",
+      "type": "disk_space",
+      "mode": "mock"
+    },
+    {
+      "name": "permissions",
+      "type": "permissions",
+      "mode": "mock"
+    }
+  ]
+}
