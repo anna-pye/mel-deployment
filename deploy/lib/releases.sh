@@ -76,17 +76,18 @@ PY
 mel_release_link_shared_resources() {
   local profile_file="$1"
   local staging_root="$2"
-  local release_root="$3"
+  local shared_path="$3"
+  local release_root="$4"
 
-  python3 - "$profile_file" "$staging_root" "$release_root" <<'PY'
+  python3 - "$profile_file" "$staging_root" "$shared_path" "$release_root" <<'PY'
 import json
 import os
 import sys
 
-profile_file, staging_root, release_root = sys.argv[1:4]
+profile_file, staging_root, shared_path, release_root = sys.argv[1:5]
 staging_root = os.path.abspath(staging_root)
+shared_root = os.path.abspath(shared_path)
 release_root = os.path.abspath(release_root)
-shared_root = os.path.join(staging_root, "shared")
 
 
 class SharedResourceError(Exception):
@@ -129,9 +130,9 @@ try:
         source_path = os.path.abspath(os.path.join(shared_root, name))
         target_path = os.path.abspath(os.path.join(release_root, target))
 
-        if not source_path.startswith(shared_root + os.sep):
+        if os.path.commonpath([shared_root, source_path]) != shared_root:
             raise SharedResourceError(f"shared resource escapes shared root: {name}")
-        if not target_path.startswith(release_root + os.sep):
+        if os.path.commonpath([release_root, target_path]) != release_root:
             raise SharedResourceError(f"shared target escapes release root: {target}")
         if kind == "directory" and not os.path.isdir(source_path):
             raise SharedResourceError(f"required shared directory is missing: {name}")
@@ -165,12 +166,35 @@ import sys
 
 profile_file, staging_root, dry_run = sys.argv[1:4]
 dry_run = dry_run == "true"
-expected_root = "/home/mel/staging"
-test_mode = os.environ.get("MEL_EXECUTOR_TEST_MODE") == "1"
 
 
 class LayoutError(Exception):
     pass
+
+
+def text(mapping, key, location):
+    value = mapping.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise LayoutError(f"{location}.{key} is required")
+    return value.strip()
+
+
+def configured_path(profile, key):
+    root = text(profile, "deployment_root", "profile")
+    paths = profile.get("paths", {})
+    defaults = {
+        "deployment_root": root,
+        "repo": os.path.join(root, "repo"),
+        "releases": os.path.join(root, "releases"),
+        "shared": os.path.join(root, "shared"),
+        "current": os.path.join(root, "current"),
+        "logs": os.path.join(root, "logs"),
+    }
+    if key in {"deployment_root", "repo"}:
+        return defaults[key]
+    if isinstance(paths, dict) and isinstance(paths.get(key), str) and paths[key].strip():
+        return paths[key].strip()
+    return defaults[key]
 
 
 try:
@@ -179,15 +203,16 @@ try:
 
     if profile.get("environment") != "staging":
         raise LayoutError("executor supports only the staging profile")
-    if staging_root != expected_root and not test_mode:
-        raise LayoutError(f"staging root must be {expected_root}")
+    expected_root = configured_path(profile, "deployment_root")
+    if os.path.abspath(staging_root) != os.path.abspath(expected_root):
+        raise LayoutError("staging root must match profile.deployment_root")
 
     required = {
-        "repo": os.path.join(staging_root, "repo"),
-        "releases": os.path.join(staging_root, "releases"),
-        "shared": os.path.join(staging_root, "shared"),
-        "current": os.path.join(staging_root, "current"),
-        "logs": os.path.join(staging_root, "logs"),
+        "repo": configured_path(profile, "repo"),
+        "releases": configured_path(profile, "releases"),
+        "shared": configured_path(profile, "shared"),
+        "current": configured_path(profile, "current"),
+        "logs": configured_path(profile, "logs"),
     }
 
     if not dry_run:

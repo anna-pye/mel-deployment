@@ -111,7 +111,7 @@ Policy evaluates environment, local repository state, deployment profile, approv
 
 ## Staging Executor Flow
 
-`mel execute staging` supports only `/home/mel/staging` outside test mode. It verifies the required `repo/`, `releases/`, `shared/`, `current`, and `logs/` layout before mutation.
+`mel execute staging` supports only the staging environment and reads its deployment root and layout paths from `profiles/staging.json`. It verifies the required `repo/`, `releases/`, `shared/`, `current`, and `logs/` layout before mutation.
 
 The executor creates `releases/<release-id>/`, copies runtime repository contents from `repo/`, links profile-defined shared resources, invokes mock plugins for Composer, Drush, health, shared resources, and current switching, writes `release.json`, writes `logs/<release-id>.deployment.json`, and switches `current` atomically only after all pre-switch checks pass.
 

@@ -14,9 +14,9 @@ Run a staging deployment only from a prepared staging root:
 deploy/bin/mel execute staging
 ```
 
-## Required Root
+## Configured Root
 
-The canonical root is:
+The staging profile owns the canonical root. The default profile currently uses:
 
 ```text
 /home/mel/staging

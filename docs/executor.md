@@ -6,7 +6,7 @@ It supports only:
 
 - repository: `anna-pye/myeventlane-platform`
 - environment: `staging`
-- deployment root: `/home/mel/staging`
+- deployment root: the value configured by `profiles/staging.json`
 
 Production execution is forbidden. `mel execute production` returns `MEL_EXECUTOR_PRODUCTION_FORBIDDEN` before validation, planning, filesystem changes, plugin calls, or rollback logic can run.
 
@@ -36,7 +36,7 @@ Any failure stops the deployment and returns exit code `2`.
 
 ## Layout
 
-The staging profile must resolve to `/home/mel/staging`.
+The staging profile owns the deployment root and path layout. The default staging profile resolves to `/home/mel/staging`.
 
 The required structure is:
 
@@ -50,6 +50,8 @@ The required structure is:
 ```
 
 Dry-runs validate the profile and pipeline without requiring the live path to exist. Real execution verifies the directories and `current` symlink before creating a release.
+
+The executor reads `paths.releases`, `paths.shared`, `paths.current`, and `paths.logs` from the profile, falling back to directories under `deployment_root` only when an older profile omits explicit path keys.
 
 ## Release Preparation
 

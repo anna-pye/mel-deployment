@@ -47,6 +47,20 @@ print(value if isinstance(value, str) else json.dumps(value))
 PY
 }
 
+mel_executor_profile_required_value() {
+  local profile_file="$1"
+  local dotted_key="$2"
+  local value
+
+  value="$(mel_executor_profile_value "$profile_file" "$dotted_key" "")" || return "$?"
+  if [[ -z "$value" ]]; then
+    printf 'profile.%s is required\n' "$dotted_key"
+    return "$MEL_EXIT_ERROR"
+  fi
+
+  printf '%s\n' "$value"
+}
+
 mel_executor_now() {
   if [[ -n "${MEL_EXECUTOR_NOW:-}" ]]; then
     printf '%s\n' "$MEL_EXECUTOR_NOW"
@@ -108,22 +122,41 @@ PY
 mel_executor_health_payload() {
   local profile_file="$1"
   local staging_root="$2"
-  local release_id="$3"
-  local current_target="$4"
-  local dry_run="$5"
+  local releases_path="$3"
+  local current_link="$4"
+  local release_id="$5"
+  local current_target="$6"
+  local dry_run="$7"
+  local health_scope="$8"
 
-  python3 - "$profile_file" "$staging_root" "$release_id" "$current_target" "$dry_run" <<'PY'
+  python3 - "$profile_file" "$staging_root" "$releases_path" "$current_link" "$release_id" "$current_target" "$dry_run" "$health_scope" <<'PY'
 import json
 import os
 import sys
 
-profile_file, staging_root, release_id, current_target, dry_run = sys.argv[1:6]
+profile_file, staging_root, releases_path, current_link, release_id, current_target, dry_run, health_scope = sys.argv[1:9]
 dry_run = dry_run == "true"
 
 with open(profile_file, "r", encoding="utf-8") as handle:
     profile = json.load(handle)
 
-checks = []
+configured_checks = list(profile.get("health_checks", []))
+if health_scope in {"release", "post"}:
+    configured_checks.append({
+        "name": "executor_release_exists",
+        "type": "release_exists",
+        "release": release_id,
+        "required": True,
+    })
+if health_scope == "post":
+    configured_checks.append({
+        "name": "executor_current_symlink",
+        "type": "current_symlink",
+        "link": current_link,
+        "target": current_target,
+        "required": True,
+    })
+
 state = {
     "http_response": {},
     "drupal_status_endpoint": {},
@@ -135,7 +168,8 @@ configured_state = profile.get("health_state", {})
 if not isinstance(configured_state, dict):
     configured_state = {}
 
-for check in profile.get("health_checks", []):
+checks = []
+for check in configured_checks:
     resolved = dict(check)
     name = resolved.get("name")
     kind = resolved.get("type")
@@ -149,10 +183,10 @@ for check in profile.get("health_checks", []):
         state["directory_exists"][path] = True if dry_run else os.path.isdir(path)
     elif kind == "release_exists":
         resolved["release"] = release_id
-        release_path = os.path.join(staging_root, "releases", release_id)
+        release_path = os.path.join(releases_path, release_id)
         state["release_exists"][release_id] = True if dry_run else os.path.isdir(release_path)
     elif kind == "current_symlink":
-        link = resolved.get("link") or os.path.join(staging_root, "current")
+        link = resolved.get("link") or current_link
         target = resolved.get("target") or current_target
         resolved["link"] = link
         resolved["target"] = target
@@ -194,14 +228,17 @@ PY
 mel_executor_run_health() {
   local profile_file="$1"
   local staging_root="$2"
-  local release_id="$3"
-  local current_target="$4"
-  local dry_run="$5"
+  local releases_path="$3"
+  local current_link="$4"
+  local release_id="$5"
+  local current_target="$6"
+  local dry_run="$7"
+  local health_scope="$8"
   local payload
   local checks
   local state
 
-  payload="$(mel_executor_health_payload "$profile_file" "$staging_root" "$release_id" "$current_target" "$dry_run")" || return "$?"
+  payload="$(mel_executor_health_payload "$profile_file" "$staging_root" "$releases_path" "$current_link" "$release_id" "$current_target" "$dry_run" "$health_scope")" || return "$?"
   checks="$(mel_executor_json_value "$payload" "checks")"
   state="$(mel_executor_json_value "$payload" "state")"
   mel_plugins_invoke_mock "${MEL_ROOT}/deploy/plugins" "$profile_file" "health" "{\"release_id\":\"${release_id}\"}" >/dev/null || return "$?"
@@ -244,11 +281,15 @@ mel_executor_run() {
   local execution_plan
   local policy_result
   local staging_root
+  local releases_path
+  local shared_path
+  local logs_path
   local release_root
   local current_link
   local previous_current=""
   local deployment_id="unknown"
   local repository
+  local profile_repository
   local branch
   local commit
   local version
@@ -268,12 +309,19 @@ mel_executor_run() {
 
   started_at="$(mel_executor_now)"
   started_epoch="$(date -u '+%s')"
-  staging_root="$(mel_executor_profile_value "$profile_file" "deployment_root" "/home/mel/staging")"
-  current_link="${staging_root}/current"
+  if ! staging_root="$(mel_executor_profile_required_value "$profile_file" "deployment_root")"; then
+    mel_output_error "$MEL_CODE_EXECUTOR_INVALID" "$staging_root"
+    return "$MEL_EXIT_ERROR"
+  fi
+  releases_path="$(mel_executor_profile_value "$profile_file" "paths.releases" "${staging_root}/releases")"
+  shared_path="$(mel_executor_profile_value "$profile_file" "paths.shared" "${staging_root}/shared")"
+  current_link="$(mel_executor_profile_value "$profile_file" "paths.current" "${staging_root}/current")"
+  logs_path="$(mel_executor_profile_value "$profile_file" "paths.logs" "${staging_root}/logs")"
+  profile_repository="$(mel_executor_profile_value "$profile_file" "repository" "")"
   if [[ -z "$release_id" ]]; then
     release_id="$(mel_release_generate_id)"
   fi
-  log_file="${staging_root}/logs/${release_id}.deployment.json"
+  log_file="${logs_path}/${release_id}.deployment.json"
 
   if ! mel_release_validate_id "$release_id" >/dev/null; then
     error_json="$(mel_executor_error "release_id" "release_id must use YYYYMMDDHHMMSS format")"
@@ -307,7 +355,12 @@ mel_executor_run() {
     mel_output_error "$MEL_CODE_EXECUTOR_INVALID" "resolved deployment environment must be staging"
     return "$MEL_EXIT_ERROR"
   fi
-  if [[ "$repository" != "git@github.com:anna-pye/myeventlane-platform.git" && "$repository" != "https://github.com/anna-pye/myeventlane-platform.git" ]]; then
+  if [[ -n "$profile_repository" ]]; then
+    if [[ "$repository" != "$profile_repository" ]]; then
+      mel_output_error "$MEL_CODE_EXECUTOR_INVALID" "resolved repository must match the staging profile"
+      return "$MEL_EXIT_ERROR"
+    fi
+  elif [[ "$repository" != "git@github.com:anna-pye/myeventlane-platform.git" && "$repository" != "https://github.com/anna-pye/myeventlane-platform.git" ]]; then
     mel_output_error "$MEL_CODE_EXECUTOR_INVALID" "resolved repository must be anna-pye/myeventlane-platform"
     return "$MEL_EXIT_ERROR"
   fi
@@ -344,7 +397,7 @@ mel_executor_run() {
   step_json="$(mel_executor_step "doctor" "passed" "doctor checks passed")"
   steps_json="$(mel_executor_json_array_append "$steps_json" "$step_json")"
 
-  if ! mel_executor_run_health "$profile_file" "$staging_root" "$release_id" "$current_link" "$dry_run"; then
+  if ! mel_executor_run_health "$profile_file" "$staging_root" "$releases_path" "$current_link" "$release_id" "$current_link" "$dry_run" "pre"; then
     mel_output_error "$MEL_CODE_HEALTH_INVALID" "pre-deployment health failed"
     return "$MEL_EXIT_ERROR"
   fi
@@ -358,7 +411,7 @@ mel_executor_run() {
   step_json="$(mel_executor_step "layout" "passed" "layout verification passed")"
   steps_json="$(mel_executor_json_array_append "$steps_json" "$step_json")"
 
-  release_root="${staging_root}/releases/${release_id}"
+  release_root="${releases_path}/${release_id}"
   if [[ "$dry_run" == "true" ]]; then
     printf '{\n  "status": "passed",\n  "dry_run": true,\n  "environment": "staging",\n  "release_id": "%s",\n  "staging_root": "%s"\n}\n' "$release_id" "$staging_root"
     return "$MEL_EXIT_SUCCESS"
@@ -375,7 +428,7 @@ mel_executor_run() {
   step_json="$(mel_executor_step "prepare_release" "passed" "release prepared")"
   steps_json="$(mel_executor_json_array_append "$steps_json" "$step_json")"
 
-  if ! mel_plugins_invoke_mock "${MEL_ROOT}/deploy/plugins" "$profile_file" "shared" "{\"release_id\":\"${release_id}\"}" >/dev/null || ! mel_release_link_shared_resources "$profile_file" "$staging_root" "$release_root" >/dev/null; then
+  if ! mel_plugins_invoke_mock "${MEL_ROOT}/deploy/plugins" "$profile_file" "shared" "{\"release_id\":\"${release_id}\"}" >/dev/null || ! mel_release_link_shared_resources "$profile_file" "$staging_root" "$shared_path" "$release_root" >/dev/null; then
     mel_output_error "$MEL_CODE_EXECUTOR_INVALID" "shared resource linking failed"
     return "$MEL_EXIT_ERROR"
   fi
@@ -396,7 +449,7 @@ mel_executor_run() {
   step_json="$(mel_executor_step "drush" "passed" "drush plugin passed")"
   steps_json="$(mel_executor_json_array_append "$steps_json" "$step_json")"
 
-  if ! mel_executor_run_health "$profile_file" "$staging_root" "$release_id" "$current_link" "false"; then
+  if ! mel_executor_run_health "$profile_file" "$staging_root" "$releases_path" "$current_link" "$release_id" "$release_root" "false" "release"; then
     mel_output_error "$MEL_CODE_HEALTH_INVALID" "release health failed"
     return "$MEL_EXIT_ERROR"
   fi
@@ -411,7 +464,7 @@ mel_executor_run() {
   steps_json="$(mel_executor_json_array_append "$steps_json" "$step_json")"
 
   if [[ "${MEL_EXECUTOR_FAIL_POST_SWITCH:-}" == "1" ]]; then
-    rollback_json="$(mel_rollback_restore_current "$current_link" "$previous_current" "${staging_root}/logs/${release_id}.rollback.json" 2>/dev/null || true)"
+    rollback_json="$(mel_rollback_restore_current "$current_link" "$previous_current" "${logs_path}/${release_id}.rollback.json" 2>/dev/null || true)"
     error_json="$(mel_executor_error "post_switch_validation" "forced post-switch validation failure")"
     errors_json="$(mel_executor_json_array_append "$errors_json" "$error_json")"
     mel_executor_finish_log "$log_file" "$deployment_id" "$release_id" "$started_at" "$started_epoch" "failed" "$steps_json" "$errors_json" "$rollback_json" >/dev/null
@@ -419,8 +472,8 @@ mel_executor_run() {
     return "$MEL_EXIT_ERROR"
   fi
 
-  if ! mel_executor_run_health "$profile_file" "$staging_root" "$release_id" "$release_root" "false" || ! mel_release_verify_layout "$profile_file" "$staging_root" "false" >/dev/null; then
-    rollback_json="$(mel_rollback_restore_current "$current_link" "$previous_current" "${staging_root}/logs/${release_id}.rollback.json" 2>/dev/null || true)"
+  if ! mel_executor_run_health "$profile_file" "$staging_root" "$releases_path" "$current_link" "$release_id" "$release_root" "false" "post" || ! mel_release_verify_layout "$profile_file" "$staging_root" "false" >/dev/null; then
+    rollback_json="$(mel_rollback_restore_current "$current_link" "$previous_current" "${logs_path}/${release_id}.rollback.json" 2>/dev/null || true)"
     error_json="$(mel_executor_error "post_switch_validation" "post-switch validation failed")"
     errors_json="$(mel_executor_json_array_append "$errors_json" "$error_json")"
     mel_executor_finish_log "$log_file" "$deployment_id" "$release_id" "$started_at" "$started_epoch" "failed" "$steps_json" "$errors_json" "$rollback_json" >/dev/null

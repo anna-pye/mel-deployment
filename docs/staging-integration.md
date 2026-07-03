@@ -1,6 +1,6 @@
 # Staging Integration
 
-This phase integrates the framework with staging readiness verification only. It does not deploy, create releases, repair directories, change permissions, switch symlinks, run Composer, or run Drush.
+This phase integrates the framework with the staging profile used by doctor, verify, report, and the staging executor. Readiness commands do not deploy, create releases, repair directories, change permissions, switch symlinks, run Composer, or run Drush.
 
 ## Profile Structure
 
