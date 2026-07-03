@@ -1,6 +1,6 @@
 # Deployment Lifecycle
 
-The deployment-readiness framework is intentionally split into read-only phases before any future executor exists.
+The deployment framework is split into reusable readiness phases followed by a staging-only executor.
 
 ```text
 Manifest
@@ -17,9 +17,9 @@ Dry Run
     ↓
 Doctor
     ↓
-Executor (future)
+Staging Executor
     ↓
-Rollback (future)
+Rollback when post-switch validation fails
 ```
 
 ## Current Phases
@@ -31,7 +31,10 @@ Rollback (future)
 - Policy evaluates whether the plan is allowed, warning, or blocked.
 - Dry Run renders the plan as human-readable simulation text.
 - Doctor validates read-only environment check contracts in mock mode.
+- Health evaluates supplied health state before and after release activity.
+- Executor prepares staging releases, invokes mock plugins, switches `current` atomically, and writes release logs.
+- Rollback restores the previous `current` symlink after post-switch validation failure.
 
-## Future Phases
+## Boundary
 
-Executor and rollback are not implemented in this repository phase. No current command may deploy, create releases, switch symlinks, run Composer, run Drush, rsync files, use SCP, or modify staging or production.
+Only staging execution is implemented. Production deployment and production rollback are forbidden. The executor does not run SSH, rsync, SCP, real Composer, real Drush, or hardcoded credentials.

@@ -27,6 +27,18 @@ export MEL_ROOT
 . "${MEL_DEPLOY_DIR}/lib/dryrun.sh"
 # shellcheck source=../lib/doctor.sh
 . "${MEL_DEPLOY_DIR}/lib/doctor.sh"
+# shellcheck source=../lib/plugins.sh
+. "${MEL_DEPLOY_DIR}/lib/plugins.sh"
+# shellcheck source=../lib/health.sh
+. "${MEL_DEPLOY_DIR}/lib/health.sh"
+# shellcheck source=../lib/releases.sh
+. "${MEL_DEPLOY_DIR}/lib/releases.sh"
+# shellcheck source=../lib/rollback.sh
+. "${MEL_DEPLOY_DIR}/lib/rollback.sh"
+# shellcheck source=../lib/release_manifest.sh
+. "${MEL_DEPLOY_DIR}/lib/release_manifest.sh"
+# shellcheck source=../lib/executor.sh
+. "${MEL_DEPLOY_DIR}/lib/executor.sh"
 # shellcheck source=../lib/common.sh
 . "${MEL_DEPLOY_DIR}/lib/common.sh"
 
@@ -466,6 +478,112 @@ mel_command_doctor() {
   mel_doctor_run "$environment" "$profile_file" "$output_format"
 }
 
+mel_command_execute() {
+  local environment="${1:-}"
+  local manifest_file
+  local schema_file
+  local profile_file=""
+  local dry_run="false"
+  local repository_state=""
+  local approvals=()
+  local approvals_csv
+  local release_id=""
+
+  manifest_file="$(mel_manifest_default_file)"
+  schema_file="$(mel_manifest_default_schema)"
+
+  if [[ -z "$environment" ]]; then
+    mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "execute requires staging"
+    return "$MEL_EXIT_ERROR"
+  fi
+  shift
+
+  if [[ "$environment" == "production" ]]; then
+    mel_output_error "$MEL_CODE_EXECUTOR_PRODUCTION_FORBIDDEN" "production execution is forbidden"
+    return "$MEL_EXIT_ERROR"
+  fi
+  if [[ "$environment" != "staging" ]]; then
+    mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "execute supports staging only"
+    return "$MEL_EXIT_ERROR"
+  fi
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --manifest)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--manifest requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        manifest_file="$2"
+        shift 2
+        ;;
+      --schema)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--schema requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        schema_file="$2"
+        shift 2
+        ;;
+      --profile)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--profile requires a file path"
+          return "$MEL_EXIT_ERROR"
+        fi
+        profile_file="$2"
+        shift 2
+        ;;
+      --repository-state)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--repository-state requires clean, dirty, or unknown"
+          return "$MEL_EXIT_ERROR"
+        fi
+        repository_state="$2"
+        shift 2
+        ;;
+      --approval)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--approval requires a name"
+          return "$MEL_EXIT_ERROR"
+        fi
+        approvals+=("$2")
+        shift 2
+        ;;
+      --release-id)
+        if [[ $# -lt 2 ]]; then
+          mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "--release-id requires a timestamp"
+          return "$MEL_EXIT_ERROR"
+        fi
+        release_id="$2"
+        shift 2
+        ;;
+      --dry-run)
+        dry_run="true"
+        shift
+        ;;
+      --help|-h)
+        mel_usage
+        return "$MEL_EXIT_SUCCESS"
+        ;;
+      *)
+        mel_output_error "$MEL_CODE_ARGUMENT_ERROR" "unknown execute option: $1"
+        return "$MEL_EXIT_ERROR"
+        ;;
+    esac
+  done
+
+  if [[ -z "$profile_file" ]]; then
+    profile_file="$(mel_executor_default_profile_file "$environment")"
+  fi
+
+  if [[ "${#approvals[@]}" -eq 0 ]]; then
+    approvals_csv=""
+  else
+    approvals_csv="$(IFS=,; printf '%s' "${approvals[*]}")"
+  fi
+  mel_executor_run "$environment" "$manifest_file" "$schema_file" "$profile_file" "$dry_run" "$repository_state" "$approvals_csv" "$release_id"
+}
+
 mel_command_version() {
   local version
   local version_status
@@ -510,6 +628,10 @@ main() {
     doctor)
       shift
       mel_command_doctor "$@"
+      ;;
+    execute)
+      shift
+      mel_command_execute "$@"
       ;;
     info)
       shift

@@ -21,6 +21,7 @@ Usage:
   mel policy [--manifest FILE] [--schema FILE] [--profile FILE] [--approval NAME]...
   mel dry-run [--manifest FILE] [--schema FILE] [--plan FILE]
   mel doctor ENVIRONMENT [--profile FILE] [--json]
+  mel execute staging [--manifest FILE] [--profile FILE] [--approval NAME] [--dry-run]
   mel info
   mel version
 
@@ -31,6 +32,7 @@ Commands:
   policy    Evaluate whether a planned deployment is allowed.
   dry-run   Print a read-only simulation for an execution plan.
   doctor    Run read-only deployment readiness checks for an environment.
+  execute   Run the staging deployment executor. Production is forbidden.
   info      Print local engine metadata.
   version   Print the engine version.
 EOF

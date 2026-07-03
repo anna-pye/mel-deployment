@@ -3,9 +3,35 @@
   "environment": "staging",
   "validation_profile": "staging",
   "policy_profile": "staging",
-  "required_approvals": [
-    "technical"
-  ],
+  "deployment_root": "/home/mel/staging",
+  "required_approvals": [],
+  "shared_resources": [],
+  "plugins": {
+    "composer": {
+      "mode": "mock",
+      "status": "passed"
+    },
+    "drush": {
+      "mode": "mock",
+      "status": "passed",
+      "operations": [
+        "updatedb",
+        "cache_rebuild"
+      ]
+    },
+    "health": {
+      "mode": "mock",
+      "status": "passed"
+    },
+    "shared": {
+      "mode": "mock",
+      "status": "passed"
+    },
+    "switch_current": {
+      "mode": "mock",
+      "status": "passed"
+    }
+  },
   "health_checks": [
     {
       "name": "staging_http_response",
@@ -18,8 +44,9 @@
       "required": true
     },
     {
-      "name": "staging_current_symlink",
-      "type": "current_symlink",
+      "name": "staging_root",
+      "type": "directory_exists",
+      "path": "/home/mel/staging",
       "required": true
     }
   ],

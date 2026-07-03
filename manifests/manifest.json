@@ -2,12 +2,20 @@
   "schema": "mel-deployment.manifest.v1",
   "name": "mel-deployment",
   "repository": {
-    "name": "mel-deployment",
-    "root": "/opt/mel-deployment"
+    "name": "myeventlane-platform",
+    "root": "/home/mel/staging",
+    "url": "git@github.com:anna-pye/myeventlane-platform.git",
+    "branch": "staging"
+  },
+  "environment": "staging",
+  "release": {
+    "strategy": "timestamp",
+    "identifier": "20260703194512"
   },
   "paths": {
-    "current": "/opt/mel-deployment/current",
-    "releases": "/opt/mel-deployment/releases",
-    "shared": "/opt/mel-deployment/shared"
-  }
+    "current": "/home/mel/staging/current",
+    "releases": "/home/mel/staging/releases",
+    "shared": "/home/mel/staging/shared"
+  },
+  "validation_profile": "staging"
 }

@@ -1,18 +1,18 @@
 # Architecture
 
-mel-deployment currently implements local validation, resolution, planner, policy, dry-run, doctor, health, and plugin-contract frameworks. It is not a deployment runtime.
+mel-deployment implements local validation, resolution, planner, policy, dry-run, doctor, health, plugin-contract, and staging executor frameworks.
 
 ## Principles
 
 - One executable, `deploy/bin/mel`, owns the command interface.
 - New behavior should be exposed through subcommands, not additional binaries.
-- Validation, resolution, planner, policy, dry-run, doctor, health, and plugin libraries live under `deploy/lib/` and are reusable by future phases.
+- Validation, resolution, planner, policy, dry-run, doctor, health, plugin, executor, release, rollback, and release manifest libraries live under `deploy/lib/` and are reusable by future phases.
 - The engine fails with structured `success`, `warning`, or `error` output and stable exit codes.
-- No current command may deploy, roll back, connect to servers, run SSH, run rsync, run Composer, run Drush, modify remote filesystems, or modify remote systems.
+- Production execution is forbidden. The staging executor does not run SSH, rsync, real Composer, real Drush, or hardcoded credentials.
 
 ## Components
 
-- `deploy/bin/mel` routes `validate`, `resolve`, `plan`, `policy`, `dry-run`, `doctor`, `info`, and `version` subcommands.
+- `deploy/bin/mel` routes `validate`, `resolve`, `plan`, `policy`, `dry-run`, `doctor`, `execute`, `info`, and `version` subcommands.
 - `deploy/lib/common.sh` provides shared repository, usage, and version helpers.
 - `deploy/lib/errors.sh` defines status names, error codes, and exit codes.
 - `deploy/lib/output.sh` formats command results and details.
@@ -26,6 +26,10 @@ mel-deployment currently implements local validation, resolution, planner, polic
 - `deploy/lib/doctor.sh` validates mock doctor contracts for staging and production.
 - `deploy/lib/health.sh` evaluates supplied health state for supported checks.
 - `deploy/lib/plugins.sh` validates non-executable plugin interface contracts.
+- `deploy/lib/executor.sh` orchestrates the staging deployment pipeline.
+- `deploy/lib/releases.sh` prepares releases, verifies layout, and links shared resources.
+- `deploy/lib/rollback.sh` restores the previous `current` symlink after post-switch validation failure.
+- `deploy/lib/release_manifest.sh` writes release manifests and structured deployment logs.
 
 ## Validation Flow
 
@@ -96,12 +100,24 @@ Dry Run
     ↓
 Doctor
     ↓
-Executor (future)
+Health
     ↓
-Rollback (future)
+Layout Verification
+    ↓
+Staging Executor
+    ↓
+Rollback when post-switch validation fails
 ```
 
-Policy evaluates environment, local repository state, deployment profile, approvals, validation success, and planner success. Dry-run renders the plan only. Doctor validates mock check definitions only. Health checks evaluate supplied state only.
+Policy evaluates environment, local repository state, deployment profile, approvals, validation success, and planner success. Dry-run renders the plan only. Doctor validates mock check definitions only. Health checks evaluate supplied state only. The staging executor reuses those layers before preparing a release.
+
+## Staging Executor Flow
+
+`mel execute staging` supports only `/home/mel/staging` outside test mode. It verifies the required `repo/`, `releases/`, `shared/`, `current`, and `logs/` layout before mutation.
+
+The executor creates `releases/<release-id>/`, copies runtime repository contents from `repo/`, links profile-defined shared resources, invokes mock plugins for Composer, Drush, health, shared resources, and current switching, writes `release.json`, writes `logs/<release-id>.deployment.json`, and switches `current` atomically only after all pre-switch checks pass.
+
+If post-switch validation fails, rollback restores the previous `current` symlink and records `logs/<release-id>.rollback.json`.
 
 ## Path Policy
 
@@ -117,4 +133,4 @@ The engine does not validate server path existence in this phase. Resolution may
 
 ## Non-Goals
 
-This phase intentionally excludes deployment, rollback, SSH commands that change state, rsync, SCP, Composer execution, Drush execution, filesystem modification outside caller-requested local output, remote modification, release creation, directory creation, symlink switching, and execution of planned actions.
+This phase intentionally excludes production deployment, production rollback, SSH commands, rsync, SCP, real Composer execution, real Drush execution, remote modification, hardcoded credentials, and hardcoded SSH configuration.

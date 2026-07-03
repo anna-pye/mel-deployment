@@ -49,3 +49,13 @@ jobs:
         run: |
           deploy/bin/mel doctor staging --json
           deploy/bin/mel doctor production --json
+
+      - name: Validate staging executor dry-run
+        run: deploy/bin/mel execute staging --dry-run
+
+      - name: Confirm production execution is forbidden
+        run: |
+          if deploy/bin/mel execute production; then
+            echo "production execution unexpectedly succeeded"
+            exit 1
+          fi

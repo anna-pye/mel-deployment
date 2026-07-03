@@ -1,8 +1,8 @@
 # mel-deployment
 
-mel-deployment is the local validation, resolution, planning, policy, dry-run, doctor, health, and plugin-contract foundation for a future deployment framework.
+mel-deployment is the local validation, resolution, planning, policy, dry-run, doctor, health, plugin-contract, and staging executor foundation for the MyEventLane deployment framework.
 
-The current implementation validates manifests, resolves validated manifests into canonical deployment models, converts resolved models into deterministic execution plans, evaluates read-only deployment policy, renders dry-run simulations, validates mock doctor contracts, evaluates supplied health state, and validates plugin contracts. It does not deploy, roll back, connect to servers, run SSH, run rsync, run Composer, run Drush, modify remote filesystems, or perform release orchestration.
+The current implementation validates manifests, resolves validated manifests into canonical deployment models, converts resolved models into deterministic execution plans, evaluates deployment policy, renders dry-run simulations, validates mock doctor contracts, evaluates supplied health state, validates plugin contracts, and can execute a staging-only atomic release workflow. It does not support production execution, production rollback, SSH, rsync, real Composer execution, real Drush execution, hardcoded credentials, or hardcoded SSH keys.
 
 ## Command Interface
 
@@ -15,6 +15,7 @@ deploy/bin/mel plan --manifest examples/hold-production.yml
 deploy/bin/mel policy --manifest examples/hold-production.yml --approval business --approval technical --approval release_manager
 deploy/bin/mel dry-run --manifest examples/hold-production.yml
 deploy/bin/mel doctor staging
+deploy/bin/mel execute staging --dry-run
 deploy/bin/mel info
 deploy/bin/mel version
 ```
@@ -84,15 +85,17 @@ Execution Plan
 
 See `docs/planner-engine.md` for the canonical plan format and rejection rules.
 
-## Readiness Framework Scope
+## Readiness And Execution Scope
 
 - `mel policy` emits structured JSON only and evaluates environment, repository state, deployment profile, approvals, validation success, and planner success.
 - `mel dry-run` prints a human-readable simulation from an execution plan and never executes the plan.
 - `mel doctor` validates staging or production doctor contracts in mock mode and returns human-readable and JSON output.
 - `deploy/lib/health.sh` evaluates supplied health state for supported check types without network or filesystem probes.
 - `deploy/lib/plugins.sh` validates non-executable plugin contracts in `deploy/plugins/`.
+- `mel execute staging` runs the staging deployment pipeline through validation, resolution, planner, policy, doctor, health, layout verification, mock plugins, atomic current switching, release manifest generation, execution logging, and automatic rollback.
+- `mel execute production` is explicitly forbidden and fails before any deployment logic runs.
 
-See `docs/policy-engine.md`, `docs/dry-run.md`, `docs/server-doctor.md`, and `docs/deployment-lifecycle.md`.
+See `docs/policy-engine.md`, `docs/dry-run.md`, `docs/server-doctor.md`, `docs/deployment-lifecycle.md`, `docs/executor.md`, `docs/staging-deployment.md`, and `docs/release-manifest.md`.
 
 ## Exit Codes
 
@@ -104,7 +107,7 @@ See `docs/policy-engine.md`, `docs/dry-run.md`, `docs/server-doctor.md`, and `do
 
 - `.github/workflows/` contains validation-only GitHub Actions workflows.
 - `deploy/bin/mel` is the single command entrypoint.
-- `deploy/lib/` contains reusable shell validation, resolution, planner, policy, dry-run, doctor, health, and plugin-contract libraries.
+- `deploy/lib/` contains reusable shell validation, resolution, planner, policy, dry-run, doctor, health, plugin-contract, executor, release, rollback, and release manifest libraries.
 - `deploy/plugins/` contains non-executable plugin interface contracts.
 - `docs/` contains architecture and operational model documentation.
 - `examples/` contains local example manifests, resolved models, and execution plans.
@@ -125,6 +128,7 @@ deploy/bin/mel validate
 deploy/bin/mel resolve --manifest examples/hold-production.yml
 deploy/bin/mel plan --manifest examples/hold-production.yml
 deploy/bin/mel dry-run --manifest examples/hold-production.yml
+deploy/bin/mel execute staging --dry-run
 ```
 
 Version: `0.1.0-dev`

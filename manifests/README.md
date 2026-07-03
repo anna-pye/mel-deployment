@@ -1,5 +1,5 @@
 # Manifests
 
-The `manifests/` directory is reserved for future deployment manifest files.
+The `manifests/` directory contains the default local deployment manifest.
 
-No manifest format is currently defined, and no deployment behavior should be inferred from this placeholder.
+The default manifest targets staging for `anna-pye/myeventlane-platform` and is used by `mel validate` and `mel execute staging --dry-run`.

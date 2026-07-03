@@ -1,11 +1,11 @@
 # Contributing
 
-This repository is currently a foundation for future deployment framework work.
+This repository is a staging-only deployment framework foundation.
 
-Contributions should keep the baseline simple and avoid adding deployment behavior until the deployment model, security model, rollback model, and validation approach are explicitly defined.
+Contributions should keep the baseline simple, reuse existing framework layers, and avoid expanding execution beyond the documented staging boundary.
 
 ## Guidelines
 
 - Keep documentation accurate to implemented behavior.
-- Do not add SSH, rsync, Composer, Drush, or server logic as part of foundation-only changes.
+- Do not add production deployment, SSH, rsync, real Composer, real Drush, hardcoded credentials, or hardcoded SSH keys.
 - Prefer small, reviewable changes with clear purpose.

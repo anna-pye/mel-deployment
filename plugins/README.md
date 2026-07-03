@@ -1,8 +1,8 @@
 # Plugin Interface
 
-The plugin framework defines read-only contracts for future deployment phases.
+The plugin framework defines mock-only contracts for deployment phases.
 
-This repository does not implement deployment plugins. Contract files in `deploy/plugins/` describe supported plugin types, expected inputs, and expected outputs. They must not execute commands, modify filesystems, contact servers, run Composer, run Drush, switch symlinks, or create releases.
+Contract files in `deploy/plugins/` describe supported plugin types, expected inputs, and expected outputs. They must not execute commands, contact servers, run Composer, run Drush, or carry secrets. The staging executor invokes these contracts as profile-driven mock plugins.
 
 ## Supported Types
 
@@ -22,4 +22,4 @@ Each plugin contract is a JSON file ending in `.plugin.json` with:
 - `inputs`: list of named input contracts.
 - `outputs`: list of named output contracts.
 
-The loader in `deploy/lib/plugins.sh` validates contract shape only. It never loads executable code.
+The loader in `deploy/lib/plugins.sh` validates contract shape and supports mock invocation from deployment profiles. It never loads executable plugin code.
