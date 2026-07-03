@@ -1,6 +1,7 @@
 hostname	staging-web-01
 user	mel
 deployment_root_exists	true
+repo	/home/mel/staging/repo
 repo_exists	true
 releases_exists	true
 shared_exists	true
@@ -23,4 +24,5 @@ writable_release_root	true
 readable_shared	true
 shared_resources_readable	true
 web_docroot	/home/mel/staging/releases/20260703120000/web
+drupal_bootstrap_status	Drupal bootstrap successful via project Drush
 drupal_bootstrap_capable	true

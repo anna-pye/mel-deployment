@@ -170,6 +170,15 @@ def remote_command_for(profile, kind):
             return f"test -x {shlex.quote(value)}"
         return f"command -v {shlex.quote(value)} >/dev/null 2>&1"
 
+    def drush_executable():
+        current_drush = f"{configured_path(profile, 'current')}/vendor/bin/drush"
+        configured_drush = drush
+        return (
+            f"if [ -x {shlex.quote(current_drush)} ]; then exit 0; fi; "
+            f"case {shlex.quote(configured_drush)} in /*) [ -x {shlex.quote(configured_drush)} ] && exit 0 ;; esac; "
+            "command -v drush >/dev/null 2>&1"
+        )
+
     if kind in {"ssh_connectivity", "remote_hostname", "remote_user"}:
         return "true"
     if kind in {"deployment_root_exists", "directory_layout"}:
@@ -192,7 +201,7 @@ def remote_command_for(profile, kind):
     if kind == "composer_availability":
         return executable(composer)
     if kind == "drush_availability":
-        return executable(drush)
+        return drush_executable()
     if kind in {"writable_directories", "writable_release_root"}:
         return f"test -w {shlex.quote(configured_path(profile, 'releases'))}"
     if kind == "readable_shared_resources":
@@ -281,6 +290,22 @@ say() {{ printf '%s\\t%s\\n' "$1" "$2"; }}
 bool_path() {{ if [ "$1" "$2" ]; then say "$3" true; else say "$3" false; fi; }}
 cmd_path() {{ command -v "$1" 2>/dev/null || true; }}
 first_line() {{ "$@" 2>&1 | awk 'NR==1 {{ print; exit }}'; }}
+resolve_drush() {{
+  current_root="$1"
+  if [ -n "$current_root" ] && [ -x "$current_root/vendor/bin/drush" ]; then
+    printf '%s\\n' "$current_root/vendor/bin/drush"
+    return
+  fi
+  case "$DRUSH_BIN" in
+    /*)
+      if [ -x "$DRUSH_BIN" ]; then
+        printf '%s\\n' "$DRUSH_BIN"
+        return
+      fi
+      ;;
+  esac
+  command -v drush 2>/dev/null || true
+}}
 
 DEPLOYMENT_ROOT={shlex.quote(root)}
 REPO_DIR={shlex.quote(repo)}
@@ -295,6 +320,7 @@ DRUSH_BIN={shlex.quote(drush)}
 say hostname "$(hostname 2>/dev/null || true)"
 say user "$(whoami 2>/dev/null || true)"
 bool_path -d "$DEPLOYMENT_ROOT" deployment_root_exists
+say repo "$REPO_DIR"
 bool_path -d "$REPO_DIR" repo_exists
 bool_path -d "$RELEASES_DIR" releases_exists
 bool_path -d "$SHARED_DIR" shared_exists
@@ -328,13 +354,17 @@ fi
 
 PHP_PATH="$(cmd_path "$PHP_BIN")"
 COMPOSER_PATH="$(cmd_path "$COMPOSER_BIN")"
-DRUSH_PATH="$(cmd_path "$DRUSH_BIN")"
+DRUSH_ROOT="$CURRENT_TARGET_RESOLVED"
+if [ -z "$DRUSH_ROOT" ]; then
+  DRUSH_ROOT="$CURRENT_LINK"
+fi
+DRUSH_PATH="$(resolve_drush "$DRUSH_ROOT")"
 say php_path "$PHP_PATH"
 say composer_path "$COMPOSER_PATH"
 say drush_path "$DRUSH_PATH"
 if [ -n "$PHP_PATH" ]; then say php_version "$(first_line "$PHP_BIN" --version)"; else say php_version ""; fi
 if [ -n "$COMPOSER_PATH" ]; then say composer_version "$(first_line "$COMPOSER_BIN" --version)"; else say composer_version ""; fi
-if [ -n "$DRUSH_PATH" ]; then say drush_version "$(first_line "$DRUSH_BIN" --version)"; else say drush_version ""; fi
+if [ -n "$DRUSH_PATH" ]; then say drush_version "$(first_line "$DRUSH_PATH" --version)"; else say drush_version ""; fi
 
 if [ -d "$DEPLOYMENT_ROOT" ]; then
   df -Pk "$DEPLOYMENT_ROOT" 2>/dev/null | awk 'NR==2 {{ printf "disk_available_kb\\t%s\\n", $4; printf "disk_usage\\t%s used, %s available, %s capacity on %s\\n", $3, $4, $5, $6 }}'
@@ -360,11 +390,23 @@ elif [ -d "$REPO_DIR/web" ]; then
   WEB_DOCROOT="$REPO_DIR/web"
 fi
 say web_docroot "$WEB_DOCROOT"
-if [ -n "$WEB_DOCROOT" ] && [ -f "$(dirname "$WEB_DOCROOT")/autoload.php" ] && [ -f "$WEB_DOCROOT/core/lib/Drupal.php" ]; then
-  say drupal_bootstrap_capable true
-else
-  say drupal_bootstrap_capable false
+DRUPAL_BOOTSTRAP_STATUS=""
+DRUPAL_BOOTSTRAP_CAPABLE=false
+if [ -n "$DRUSH_PATH" ] && [ -n "$WEB_DOCROOT" ]; then
+  DRUPAL_PROJECT_ROOT="$(dirname "$WEB_DOCROOT")"
+  DRUPAL_BOOTSTRAP_STATUS="$(cd "$DRUPAL_PROJECT_ROOT" && "$DRUSH_PATH" status 2>&1)"
+  DRUPAL_BOOTSTRAP_EXIT=$?
+  if [ "$DRUPAL_BOOTSTRAP_EXIT" -eq 0 ]; then
+    DRUPAL_BOOTSTRAP_CAPABLE=true
+  fi
+  if [ -z "$DRUPAL_BOOTSTRAP_STATUS" ]; then
+    DRUPAL_BOOTSTRAP_STATUS="drush status exited $DRUPAL_BOOTSTRAP_EXIT"
+  else
+    DRUPAL_BOOTSTRAP_STATUS="$(printf '%s\n' "$DRUPAL_BOOTSTRAP_STATUS" | awk 'BEGIN {{ separator="" }} {{ printf "%s%s", separator, $0; separator=" | " }} END {{ print "" }}')"
+  fi
 fi
+say drupal_bootstrap_status "$DRUPAL_BOOTSTRAP_STATUS"
+say drupal_bootstrap_capable "$DRUPAL_BOOTSTRAP_CAPABLE"
 """
 
 
@@ -420,7 +462,7 @@ def snapshot_from_values(profile, values, mode):
         "hostname": values.get("hostname", ""),
         "user": values.get("user", ""),
         "deployment_root": configured_path(profile, "deployment_root"),
-        "repo": configured_path(profile, "repo"),
+        "repo": values.get("repo") or configured_path(profile, "repo"),
         "releases": configured_path(profile, "releases"),
         "shared": configured_path(profile, "shared"),
         "current": configured_path(profile, "current"),
@@ -448,6 +490,7 @@ def snapshot_from_values(profile, values, mode):
         "readable_shared": bool_value(values, "readable_shared"),
         "shared_resources_readable": bool_value(values, "shared_resources_readable"),
         "web_docroot": values.get("web_docroot", ""),
+        "drupal_bootstrap_status": values.get("drupal_bootstrap_status", ""),
         "drupal_bootstrap_capable": bool_value(values, "drupal_bootstrap_capable"),
     }
 

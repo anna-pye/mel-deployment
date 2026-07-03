@@ -303,6 +303,167 @@ EOF
   printf '%s\t%s\n' "$root" "$profile_file"
 }
 
+live_doctor_fixture() {
+  local name="$1"
+  local drush_mode="$2"
+  local tmp="${DOCTOR_TEST_DIR}/.tmp-${name}"
+  local root="${tmp}/staging"
+  local release="${root}/releases/20260703120000"
+  local repo_path="${root}/repo"
+  local bin_path="${tmp}/bin"
+  local profile_file="${tmp}/profile.json"
+
+  rm -rf "$tmp"
+  mkdir -p "$repo_path" "$release/web/core/lib" "$release/vendor/bin" "$root/releases/previous" "$root/shared" "$root/logs" "$bin_path"
+  printf 'runtime\n' >"$repo_path/index.php"
+  printf 'autoload\n' >"$release/autoload.php"
+  printf 'drupal\n' >"$release/web/core/lib/Drupal.php"
+  ln -s "$release" "$root/current"
+
+  cat >"${bin_path}/ssh" <<'EOF'
+#!/usr/bin/env bash
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      shift 2
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+exec sh -s
+EOF
+  chmod +x "${bin_path}/ssh"
+
+  cat >"${bin_path}/readlink" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "-f" ]]; then
+  python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$2"
+  exit 0
+fi
+exec /usr/bin/readlink "$@"
+EOF
+  chmod +x "${bin_path}/readlink"
+
+  if [[ "$drush_mode" == "composer" ]]; then
+    cat >"${release}/vendor/bin/drush" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then
+  printf 'Drush Commandline Tool composer-managed\n'
+  exit 0
+fi
+if [[ "$*" == *"--root"* || "$*" == *"--field=bootstrap"* ]]; then
+  printf 'unexpected legacy bootstrap arguments: %s\n' "$*" >&2
+  exit 13
+fi
+if [[ "${1:-}" != "status" ]]; then
+  printf 'expected drush status, got: %s\n' "$*" >&2
+  exit 14
+fi
+if [[ "$PWD" != "${MEL_EXPECTED_DRUSH_CWD:-}" ]]; then
+  printf 'expected cwd %s, got %s\n' "${MEL_EXPECTED_DRUSH_CWD:-}" "$PWD" >&2
+  exit 15
+fi
+printf 'Drupal bootstrap successful via project Drush\n'
+EOF
+    chmod +x "${release}/vendor/bin/drush"
+  elif [[ "$drush_mode" == "fail" ]]; then
+    cat >"${release}/vendor/bin/drush" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then
+  printf 'Drush Commandline Tool composer-managed\n'
+  exit 0
+fi
+if [[ "$*" == *"--root"* || "$*" == *"--field=bootstrap"* ]]; then
+  printf 'unexpected legacy bootstrap arguments: %s\n' "$*" >&2
+  exit 13
+fi
+if [[ "${1:-}" != "status" ]]; then
+  printf 'expected drush status, got: %s\n' "$*" >&2
+  exit 14
+fi
+if [[ "$PWD" != "${MEL_EXPECTED_DRUSH_CWD:-}" ]]; then
+  printf 'expected cwd %s, got %s\n' "${MEL_EXPECTED_DRUSH_CWD:-}" "$PWD" >&2
+  exit 15
+fi
+printf 'Drupal bootstrap failed\n' >&2
+exit 1
+EOF
+    chmod +x "${release}/vendor/bin/drush"
+  else
+    rm -f "${release}/vendor/bin/drush"
+    cat >"${bin_path}/drush" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *"--version"* ]]; then
+  printf 'Drush Commandline Tool global-fallback\n'
+  exit 0
+fi
+if [[ "$*" == *"--root"* || "$*" == *"--field=bootstrap"* ]]; then
+  printf 'unexpected legacy bootstrap arguments: %s\n' "$*" >&2
+  exit 13
+fi
+if [[ "${1:-}" != "status" ]]; then
+  printf 'expected drush status, got: %s\n' "$*" >&2
+  exit 14
+fi
+if [[ "$PWD" != "${MEL_EXPECTED_DRUSH_CWD:-}" ]]; then
+  printf 'expected cwd %s, got %s\n' "${MEL_EXPECTED_DRUSH_CWD:-}" "$PWD" >&2
+  exit 15
+fi
+printf 'Drupal bootstrap successful via global fallback\n'
+EOF
+    chmod +x "${bin_path}/drush"
+  fi
+
+  cat >"$profile_file" <<EOF
+{
+  "profile": "staging",
+  "profile_version": "1",
+  "environment": "staging",
+  "validation_profile": "staging",
+  "policy_profile": "staging",
+  "deployment_root": "$root",
+  "repository": "git@github.com:anna-pye/myeventlane-platform.git",
+  "ssh": {
+    "host": "staging",
+    "user": "$(whoami)"
+  },
+  "paths": {
+    "releases": "$root/releases",
+    "shared": "$root/shared",
+    "current": "$root/current",
+    "logs": "$root/logs"
+  },
+  "executables": {
+    "php": "php",
+    "composer": "composer",
+    "drush": "drush"
+  },
+  "verification": {
+    "mode": "ssh"
+  },
+  "required_approvals": [],
+  "shared_resources": [],
+  "health_endpoints": [],
+  "health_checks": [],
+  "doctor_checks": [
+    {"name": "ssh_connectivity", "type": "ssh_connectivity", "mode": "ssh"},
+    {"name": "repo", "type": "repo_exists", "mode": "ssh"},
+    {"name": "current", "type": "current_exists", "mode": "ssh"},
+    {"name": "current_target", "type": "current_target_exists", "mode": "ssh"},
+    {"name": "logs", "type": "logs_exists", "mode": "ssh"},
+    {"name": "drush_availability", "type": "drush_availability", "mode": "ssh"}
+  ]
+}
+EOF
+
+  printf '%s\t%s\t%s\t%s\t%s\n' "$root" "$repo_path" "$profile_file" "$bin_path" "$release"
+}
+
 test_valid_manifest() {
   local output_file="${VALIDATION_TEST_DIR}/.valid.out"
   local status
@@ -715,6 +876,100 @@ test_doctor_staging() {
   assert_contains "doctor staging prints JSON output" "$output" '"environment": "staging"'
   assert_contains "doctor staging reports live hostname" "$output" "staging-web-01"
   assert_contains "doctor staging reports current release" "$output" '"current_release": "20260703120000"'
+}
+
+test_doctor_reports_repository_path_from_snapshot() {
+  local fixture
+  local root
+  local repo_path
+  local profile_file
+  local bin_path
+  local release
+  local output_file="${DOCTOR_TEST_DIR}/.repo-path.out"
+  local status
+  local output
+
+  fixture="$(live_doctor_fixture "repo-path" composer)"
+  IFS=$'\t' read -r root repo_path profile_file bin_path release <<<"$fixture"
+
+  run_command "$output_file" env PATH="${bin_path}:$PATH" MEL_EXPECTED_DRUSH_CWD="$release" "$MEL" doctor staging --profile "$profile_file" --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "doctor reports repository path from snapshot" 0 "$status"
+  assert_contains "doctor reports resolved repository path" "$output" "\"repo\": \"$repo_path\""
+}
+
+test_doctor_composer_managed_drush() {
+  local fixture
+  local root
+  local repo_path
+  local profile_file
+  local bin_path
+  local release
+  local output_file="${DOCTOR_TEST_DIR}/.composer-drush.out"
+  local status
+  local output
+  local release_drush
+
+  fixture="$(live_doctor_fixture "composer-drush" composer)"
+  IFS=$'\t' read -r root repo_path profile_file bin_path release <<<"$fixture"
+  release_drush="${root}/releases/20260703120000/vendor/bin/drush"
+
+  run_command "$output_file" env PATH="${bin_path}:$PATH" MEL_EXPECTED_DRUSH_CWD="$release" "$MEL" doctor staging --profile "$profile_file" --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "doctor prefers Composer-managed current Drush" 0 "$status"
+  assert_contains "doctor reports current release Drush path" "$output" "\"drush_path\": \"$release_drush\""
+  assert_contains "doctor bootstraps Drupal with resolved Drush" "$output" '"drupal_bootstrap_capable": true'
+  assert_contains "doctor captures Drush status output" "$output" "Drupal bootstrap successful via project Drush"
+}
+
+test_doctor_global_drush_fallback() {
+  local fixture
+  local root
+  local repo_path
+  local profile_file
+  local bin_path
+  local release
+  local output_file="${DOCTOR_TEST_DIR}/.global-drush.out"
+  local status
+  local output
+
+  fixture="$(live_doctor_fixture "global-drush" global)"
+  IFS=$'\t' read -r root repo_path profile_file bin_path release <<<"$fixture"
+
+  run_command "$output_file" env PATH="${bin_path}:$PATH" MEL_EXPECTED_DRUSH_CWD="$release" "$MEL" doctor staging --profile "$profile_file" --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "doctor falls back to global Drush on PATH" 0 "$status"
+  assert_contains "doctor reports PATH Drush path" "$output" "\"drush_path\": \"${bin_path}/drush\""
+  assert_contains "doctor reports PATH Drush version" "$output" "global-fallback"
+}
+
+test_doctor_failed_bootstrap_exit_code() {
+  local fixture
+  local root
+  local repo_path
+  local profile_file
+  local bin_path
+  local release
+  local output_file="${DOCTOR_TEST_DIR}/.bootstrap-failure.out"
+  local status
+  local output
+
+  fixture="$(live_doctor_fixture "bootstrap-failure" fail)"
+  IFS=$'\t' read -r root repo_path profile_file bin_path release <<<"$fixture"
+
+  run_command "$output_file" env PATH="${bin_path}:$PATH" MEL_EXPECTED_DRUSH_CWD="$release" "$MEL" doctor staging --profile "$profile_file" --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "doctor snapshot succeeds when Drush status fails" 0 "$status"
+  assert_contains "doctor reports failed bootstrap status output" "$output" "Drupal bootstrap failed"
+  assert_contains "doctor treats non-zero Drush status as not bootstrap capable" "$output" '"drupal_bootstrap_capable": false'
 }
 
 test_doctor_production_json() {
@@ -1336,6 +1591,7 @@ cleanup() {
   rm -f "${POLICY_TEST_DIR}"/.*.out
   rm -f "${DRYRUN_TEST_DIR}"/.*.out
   rm -f "${DOCTOR_TEST_DIR}"/.*.out
+  rm -rf "${DOCTOR_TEST_DIR}"/.tmp-*
   rm -f "${HEALTH_TEST_DIR}"/.*.out
   rm -f "${READINESS_TEST_DIR}"/.*.out
   rm -rf "${READINESS_TEST_DIR}"/.tmp-*
@@ -1378,6 +1634,10 @@ test_policy_missing_approval
 test_dry_run_manifest
 test_dry_run_plan_file
 test_doctor_staging
+test_doctor_reports_repository_path_from_snapshot
+test_doctor_composer_managed_drush
+test_doctor_global_drush_fallback
+test_doctor_failed_bootstrap_exit_code
 test_doctor_production_json
 test_health_success
 test_health_failure
