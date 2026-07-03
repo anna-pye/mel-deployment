@@ -1,0 +1,69 @@
+{
+  "plan_version": 1,
+  "deployment_id": "hold-production",
+  "environment": "production",
+  "steps": [
+    {
+      "id": "validate",
+      "order": 10,
+      "depends_on": [],
+      "action": "validate"
+    },
+    {
+      "id": "prepare_release",
+      "order": 20,
+      "depends_on": [
+        "validate"
+      ],
+      "action": "prepare_release"
+    },
+    {
+      "id": "link_shared",
+      "order": 30,
+      "depends_on": [
+        "prepare_release"
+      ],
+      "action": "link_shared"
+    },
+    {
+      "id": "composer_install",
+      "order": 40,
+      "depends_on": [
+        "link_shared"
+      ],
+      "action": "composer_install"
+    },
+    {
+      "id": "database_update",
+      "order": 50,
+      "depends_on": [
+        "composer_install"
+      ],
+      "action": "database_update"
+    },
+    {
+      "id": "cache_rebuild",
+      "order": 60,
+      "depends_on": [
+        "database_update"
+      ],
+      "action": "cache_rebuild"
+    },
+    {
+      "id": "health_check",
+      "order": 70,
+      "depends_on": [
+        "cache_rebuild"
+      ],
+      "action": "health_check"
+    },
+    {
+      "id": "switch_current",
+      "order": 80,
+      "depends_on": [
+        "health_check"
+      ],
+      "action": "switch_current"
+    }
+  ]
+}

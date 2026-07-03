@@ -17,12 +17,14 @@ mel_usage() {
 Usage:
   mel validate [--manifest FILE] [--schema FILE]
   mel resolve [--manifest FILE] [--schema FILE] [--output FILE] [--pretty]
+  mel plan [--manifest FILE] [--schema FILE] [--output FILE] [--pretty]
   mel info
   mel version
 
 Commands:
   validate  Validate manifest, schema, paths, and repository metadata.
   resolve   Convert a validated manifest into a canonical deployment model.
+  plan      Convert a resolved deployment model into an execution plan.
   info      Print local engine metadata.
   version   Print the engine version.
 EOF

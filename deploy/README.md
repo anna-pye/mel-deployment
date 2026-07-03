@@ -1,8 +1,8 @@
 # Deploy Directory
 
-The `deploy/` directory is reserved for future deployment framework code.
+The `deploy/` directory contains the local validation, resolution, and planner engine code.
 
-- `deploy/bin/` is intended for future executable entry points.
-- `deploy/lib/` is intended for future shared library code.
+- `deploy/bin/` contains the single `mel` command entrypoint.
+- `deploy/lib/` contains shared engine library code.
 
-No deployment commands or server logic are implemented here yet.
+No deployment execution, rollback, server communication, SSH, rsync, Composer, Drush, release creation, or remote filesystem logic is implemented here.

@@ -29,3 +29,6 @@ jobs:
 
       - name: Resolve example manifest
         run: deploy/bin/mel resolve --manifest examples/hold-production.yml
+
+      - name: Plan example manifest
+        run: deploy/bin/mel plan --manifest examples/hold-production.yml

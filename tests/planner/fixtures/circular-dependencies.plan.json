@@ -1,0 +1,23 @@
+{
+  "plan_version": 1,
+  "deployment_id": "hold-production",
+  "environment": "production",
+  "steps": [
+    {
+      "id": "validate",
+      "order": 10,
+      "depends_on": [
+        "prepare_release"
+      ],
+      "action": "validate"
+    },
+    {
+      "id": "prepare_release",
+      "order": 20,
+      "depends_on": [
+        "validate"
+      ],
+      "action": "prepare_release"
+    }
+  ]
+}
