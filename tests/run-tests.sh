@@ -9,6 +9,7 @@ POLICY_TEST_DIR="${ROOT_DIR}/tests/policy"
 DRYRUN_TEST_DIR="${ROOT_DIR}/tests/dryrun"
 DOCTOR_TEST_DIR="${ROOT_DIR}/tests/doctor"
 HEALTH_TEST_DIR="${ROOT_DIR}/tests/health"
+READINESS_TEST_DIR="${ROOT_DIR}/tests/readiness"
 PLUGIN_TEST_DIR="${ROOT_DIR}/tests/plugins"
 PROFILE_TEST_DIR="${ROOT_DIR}/tests/profiles"
 EXECUTOR_TEST_DIR="${ROOT_DIR}/tests/executor"
@@ -216,6 +217,90 @@ EOF
 EOF
 
   printf '%s\t%s\t%s\n' "$root" "$manifest_file" "$profile_file"
+}
+
+readiness_fixture() {
+  local name="$1"
+  local layout="${2:-valid}"
+  local health_status="${3:-passed}"
+  local doctor_mode="${4:-profile}"
+  local root="${READINESS_TEST_DIR}/.tmp-${name}/staging"
+  local profile_file="${READINESS_TEST_DIR}/.tmp-${name}/profile.json"
+
+  rm -rf "${READINESS_TEST_DIR}/.tmp-${name}"
+  mkdir -p "$root/releases/previous" "$root/shared/files" "$root/logs"
+  ln -s "$root/releases/previous" "$root/current"
+
+  if [[ "$layout" == "missing-releases" ]]; then
+    rm -rf "$root/releases"
+  elif [[ "$layout" == "missing-shared" ]]; then
+    rm -rf "$root/shared/files"
+  elif [[ "$layout" == "broken-current" ]]; then
+    rm -f "$root/current"
+    ln -s "$root/releases/missing" "$root/current"
+  fi
+
+  local http_status=200
+  if [[ "$health_status" == "failed" ]]; then
+    http_status=500
+  fi
+
+  cat >"$profile_file" <<EOF
+{
+  "profile": "staging",
+  "profile_version": "1",
+  "environment": "staging",
+  "validation_profile": "staging",
+  "policy_profile": "staging",
+  "deployment_root": "$root",
+  "repository": "git@github.com:anna-pye/myeventlane-platform.git",
+  "ssh": {
+    "host": "staging",
+    "user": "mel"
+  },
+  "paths": {
+    "releases": "$root/releases",
+    "shared": "$root/shared",
+    "current": "$root/current",
+    "logs": "$root/logs"
+  },
+  "executables": {
+    "php": "php",
+    "composer": "composer",
+    "drush": "drush"
+  },
+  "verification": {
+    "mode": "local"
+  },
+  "required_approvals": [],
+  "shared_resources": [
+    {"name": "files", "target": "web/sites/default/files", "type": "directory"}
+  ],
+  "health_endpoints": [],
+  "health_state": {
+    "staging_http_response": $http_status
+  },
+  "health_checks": [
+    {"name": "staging_http_response", "type": "http_response", "required": true},
+    {"name": "staging_drupal_status", "type": "drupal_status_endpoint", "required": true},
+    {"name": "staging_current", "type": "current_symlink", "link": "$root/current", "target": "$root/releases/previous", "required": true}
+  ],
+  "doctor_checks": [
+    {"name": "ssh_connectivity", "type": "ssh_connectivity", "mode": "$doctor_mode"},
+    {"name": "deployment_root", "type": "deployment_root_exists", "mode": "profile"},
+    {"name": "releases", "type": "releases_exists", "mode": "profile"},
+    {"name": "shared", "type": "shared_exists", "mode": "profile"},
+    {"name": "current", "type": "current_exists", "mode": "profile"},
+    {"name": "logs", "type": "logs_exists", "mode": "profile"},
+    {"name": "composer_availability", "type": "composer_availability", "mode": "profile"},
+    {"name": "drush_availability", "type": "drush_availability", "mode": "profile"},
+    {"name": "writable_release_root", "type": "writable_release_root", "mode": "profile"},
+    {"name": "readable_shared_resources", "type": "readable_shared_resources", "mode": "profile"}
+  ]
+}
+EOF
+
+  printf '%s\t%s\n' "$root" "$profile_file"
 }
 
 test_valid_manifest() {
@@ -695,7 +780,7 @@ test_profiles_are_non_secret_contracts() {
 import json
 import sys
 
-required_keys = {
+common_required_keys = {
     "profile",
     "environment",
     "validation_profile",
@@ -704,11 +789,21 @@ required_keys = {
     "health_checks",
     "doctor_checks",
 }
+staging_required_keys = common_required_keys | {
+    "profile_version",
+    "deployment_root",
+    "repository",
+    "ssh",
+    "paths",
+    "executables",
+    "health_endpoints",
+}
 secret_words = ("password", "secret", "token", "credential", "private_key")
 
 for path in sys.argv[1:]:
     with open(path, "r", encoding="utf-8") as handle:
         profile = json.load(handle)
+    required_keys = staging_required_keys if profile.get("environment") == "staging" else common_required_keys
     missing = sorted(required_keys - set(profile))
     if missing:
         print(f"{path} missing keys: {', '.join(missing)}")
@@ -717,8 +812,8 @@ for path in sys.argv[1:]:
     if any(word in encoded for word in secret_words):
         print(f"{path} appears to contain secret material")
         sys.exit(2)
-    if any(check.get("mode") != "mock" for check in profile["doctor_checks"]):
-        print(f"{path} contains non-mock doctor checks")
+    if any(check.get("mode") not in {"mock", "profile"} for check in profile["doctor_checks"]):
+        print(f"{path} contains unsupported doctor checks")
         sys.exit(2)
 
 print("profiles ok")
@@ -728,6 +823,189 @@ PY
 
   assert_exit "profiles validate as non-secret contracts" 0 "$status"
   assert_contains "profiles report ok" "$output" "profiles ok"
+}
+
+test_verify_valid_profile() {
+  local fixture
+  local root
+  local profile_file
+  local output_file="${READINESS_TEST_DIR}/.valid-profile.out"
+  local status
+  local output
+
+  fixture="$(readiness_fixture "valid-profile")"
+  IFS=$'\t' read -r root profile_file <<<"$fixture"
+
+  run_command "$output_file" "$MEL" verify staging --profile "$profile_file" --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "verify valid profile exits success" 0 "$status"
+  assert_contains "verify valid profile reports passed" "$output" '"status": "passed"'
+}
+
+test_verify_missing_profile_fields() {
+  local fixture
+  local root
+  local profile_file
+  local output_file="${READINESS_TEST_DIR}/.missing-profile-fields.out"
+  local status
+  local output
+
+  fixture="$(readiness_fixture "missing-profile-fields")"
+  IFS=$'\t' read -r root profile_file <<<"$fixture"
+  python3 - "$profile_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    profile = json.load(handle)
+del profile["ssh"]
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(profile, handle, indent=2)
+PY
+
+  run_command "$output_file" "$MEL" verify staging --profile "$profile_file" --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "verify rejects missing profile fields" 2 "$status"
+  assert_contains "verify missing profile fields names ssh" "$output" "profile.ssh must be an object"
+}
+
+test_verify_invalid_layout() {
+  local fixture
+  local root
+  local profile_file
+  local output_file="${READINESS_TEST_DIR}/.invalid-layout.out"
+  local status
+  local output
+
+  fixture="$(readiness_fixture "invalid-layout")"
+  IFS=$'\t' read -r root profile_file <<<"$fixture"
+  rm -rf "$root/logs"
+
+  run_command "$output_file" "$MEL" verify staging --profile "$profile_file" --check layout --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "verify rejects invalid layout" 2 "$status"
+  assert_contains "verify invalid layout reports logs" "$output" "logs directory is missing"
+}
+
+test_verify_broken_current_symlink() {
+  local fixture
+  local root
+  local profile_file
+  local output_file="${READINESS_TEST_DIR}/.broken-current.out"
+  local status
+  local output
+
+  fixture="$(readiness_fixture "broken-current" broken-current)"
+  IFS=$'\t' read -r root profile_file <<<"$fixture"
+
+  run_command "$output_file" "$MEL" verify staging --profile "$profile_file" --check layout --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "verify rejects broken current symlink" 2 "$status"
+  assert_contains "verify broken current reports target" "$output" "current symlink target is missing"
+}
+
+test_verify_missing_shared() {
+  local fixture
+  local root
+  local profile_file
+  local output_file="${READINESS_TEST_DIR}/.missing-shared.out"
+  local status
+  local output
+
+  fixture="$(readiness_fixture "missing-shared" missing-shared)"
+  IFS=$'\t' read -r root profile_file <<<"$fixture"
+
+  run_command "$output_file" "$MEL" verify staging --profile "$profile_file" --check layout --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "verify rejects missing shared resource" 2 "$status"
+  assert_contains "verify missing shared reports resource" "$output" "required shared directory is missing"
+}
+
+test_verify_missing_releases() {
+  local fixture
+  local root
+  local profile_file
+  local output_file="${READINESS_TEST_DIR}/.missing-releases.out"
+  local status
+  local output
+
+  fixture="$(readiness_fixture "missing-releases" missing-releases)"
+  IFS=$'\t' read -r root profile_file <<<"$fixture"
+
+  run_command "$output_file" "$MEL" verify staging --profile "$profile_file" --check layout --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "verify rejects missing releases" 2 "$status"
+  assert_contains "verify missing releases reports directory" "$output" "releases directory is missing"
+}
+
+test_doctor_readiness_failure() {
+  local fixture
+  local root
+  local profile_file
+  local output_file="${READINESS_TEST_DIR}/.doctor-failure.out"
+  local status
+  local output
+
+  fixture="$(readiness_fixture "doctor-failure" valid passed live)"
+  IFS=$'\t' read -r root profile_file <<<"$fixture"
+
+  run_command "$output_file" "$MEL" doctor staging --profile "$profile_file" --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "doctor fails unsupported readiness mode" 2 "$status"
+  assert_contains "doctor readiness failure reports unsupported mode" "$output" "unsupported mode"
+}
+
+test_verify_health_failure() {
+  local fixture
+  local root
+  local profile_file
+  local output_file="${READINESS_TEST_DIR}/.health-failure.out"
+  local status
+  local output
+
+  fixture="$(readiness_fixture "health-failure" valid failed)"
+  IFS=$'\t' read -r root profile_file <<<"$fixture"
+
+  run_command "$output_file" "$MEL" verify staging --profile "$profile_file" --check health --json
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "verify fails health failure" 2 "$status"
+  assert_contains "verify health failure reports HTTP" "$output" "HTTP status 500"
+}
+
+test_report_generation() {
+  local fixture
+  local root
+  local profile_file
+  local output_file="${READINESS_TEST_DIR}/.report.out"
+  local status
+  local output
+
+  fixture="$(readiness_fixture "report")"
+  IFS=$'\t' read -r root profile_file <<<"$fixture"
+
+  run_command "$output_file" "$MEL" report staging --profile "$profile_file"
+  status=$?
+  output="$(<"$output_file")"
+
+  assert_exit "report generation exits success" 0 "$status"
+  assert_contains "report includes deployment ready" "$output" "Deployment Ready: READY"
+  assert_contains "report includes profile version" "$output" "Profile Version: 1"
 }
 
 test_execute_dry_run_staging() {
@@ -1026,6 +1304,8 @@ cleanup() {
   rm -f "${DRYRUN_TEST_DIR}"/.*.out
   rm -f "${DOCTOR_TEST_DIR}"/.*.out
   rm -f "${HEALTH_TEST_DIR}"/.*.out
+  rm -f "${READINESS_TEST_DIR}"/.*.out
+  rm -rf "${READINESS_TEST_DIR}"/.tmp-*
   rm -f "${PLUGIN_TEST_DIR}"/.*.out
   rm -f "${PROFILE_TEST_DIR}"/.*.out
   rm -f "${EXECUTOR_TEST_DIR}"/.*.out
@@ -1070,6 +1350,15 @@ test_health_success
 test_health_failure
 test_plugin_contracts_load
 test_profiles_are_non_secret_contracts
+test_verify_valid_profile
+test_verify_missing_profile_fields
+test_verify_invalid_layout
+test_verify_broken_current_symlink
+test_verify_missing_shared
+test_verify_missing_releases
+test_doctor_readiness_failure
+test_verify_health_failure
+test_report_generation
 test_execute_dry_run_staging
 test_execute_rejects_production
 test_successful_deployment

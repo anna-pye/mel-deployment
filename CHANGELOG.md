@@ -16,3 +16,4 @@
 - Add deterministic validation, resolver, planner, policy, dry-run, doctor, health, plugin, profile, executor, release manifest, and rollback tests with a local test runner.
 - Add hold-production example manifest, resolved canonical model, and execution plan artefacts.
 - Update validation-only CI to run shell syntax checks, unit tests, schema-backed manifest validation, resolver example validation, planner example validation, policy checks, dry-run simulation, mock doctor checks, staging executor dry-run, and production execution rejection.
+- Add staging readiness integration with profile-driven doctor, health, layout, and report commands that remain read-only and do not deploy.

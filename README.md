@@ -15,6 +15,8 @@ deploy/bin/mel plan --manifest examples/hold-production.yml
 deploy/bin/mel policy --manifest examples/hold-production.yml --approval business --approval technical --approval release_manager
 deploy/bin/mel dry-run --manifest examples/hold-production.yml
 deploy/bin/mel doctor staging
+deploy/bin/mel verify staging
+deploy/bin/mel report staging
 deploy/bin/mel execute staging --dry-run
 deploy/bin/mel info
 deploy/bin/mel version
@@ -89,13 +91,15 @@ See `docs/planner-engine.md` for the canonical plan format and rejection rules.
 
 - `mel policy` emits structured JSON only and evaluates environment, repository state, deployment profile, approvals, validation success, and planner success.
 - `mel dry-run` prints a human-readable simulation from an execution plan and never executes the plan.
-- `mel doctor` validates staging or production doctor contracts in mock mode and returns human-readable and JSON output.
-- `deploy/lib/health.sh` evaluates supplied health state for supported check types without network or filesystem probes.
+- `mel doctor` validates staging or production doctor contracts and can run profile-only or read-only SSH checks from profile configuration.
+- `mel verify staging` validates staging profile, layout, and health readiness without repair or deployment.
+- `mel report staging` prints a structured deployment readiness report with blocking reasons.
+- `deploy/lib/health.sh` evaluates supplied health state for supported check types without hardcoded URLs.
 - `deploy/lib/plugins.sh` validates non-executable plugin contracts in `deploy/plugins/`.
 - `mel execute staging` runs the staging deployment pipeline through validation, resolution, planner, policy, doctor, health, layout verification, mock plugins, atomic current switching, release manifest generation, execution logging, and automatic rollback.
 - `mel execute production` is explicitly forbidden and fails before any deployment logic runs.
 
-See `docs/policy-engine.md`, `docs/dry-run.md`, `docs/server-doctor.md`, `docs/deployment-lifecycle.md`, `docs/executor.md`, `docs/staging-deployment.md`, and `docs/release-manifest.md`.
+See `docs/policy-engine.md`, `docs/dry-run.md`, `docs/server-doctor.md`, `docs/deployment-lifecycle.md`, `docs/executor.md`, `docs/staging-deployment.md`, `docs/staging-integration.md`, and `docs/release-manifest.md`.
 
 ## Exit Codes
 
@@ -128,6 +132,9 @@ deploy/bin/mel validate
 deploy/bin/mel resolve --manifest examples/hold-production.yml
 deploy/bin/mel plan --manifest examples/hold-production.yml
 deploy/bin/mel dry-run --manifest examples/hold-production.yml
+deploy/bin/mel doctor staging
+deploy/bin/mel verify staging
+deploy/bin/mel report staging
 deploy/bin/mel execute staging --dry-run
 ```
 

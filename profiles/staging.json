@@ -1,9 +1,30 @@
 {
   "profile": "staging",
+  "profile_version": "1",
   "environment": "staging",
   "validation_profile": "staging",
   "policy_profile": "staging",
   "deployment_root": "/home/mel/staging",
+  "repository": "git@github.com:anna-pye/myeventlane-platform.git",
+  "ssh": {
+    "host": "staging",
+    "user": "mel"
+  },
+  "paths": {
+    "releases": "/home/mel/staging/releases",
+    "shared": "/home/mel/staging/shared",
+    "current": "/home/mel/staging/current",
+    "logs": "/home/mel/staging/logs"
+  },
+  "executables": {
+    "php": "php",
+    "composer": "composer",
+    "drush": "drush"
+  },
+  "verification": {
+    "mode": "profile"
+  },
+  "health_endpoints": [],
   "required_approvals": [],
   "shared_resources": [],
   "plugins": {
@@ -54,47 +75,62 @@
     {
       "name": "ssh_connectivity",
       "type": "ssh_connectivity",
-      "mode": "mock"
+      "mode": "profile"
     },
     {
-      "name": "php_version",
-      "type": "php_version",
-      "mode": "mock"
+      "name": "deployment_root",
+      "type": "deployment_root_exists",
+      "mode": "profile"
+    },
+    {
+      "name": "releases",
+      "type": "releases_exists",
+      "mode": "profile"
+    },
+    {
+      "name": "shared",
+      "type": "shared_exists",
+      "mode": "profile"
+    },
+    {
+      "name": "current",
+      "type": "current_exists",
+      "mode": "profile"
+    },
+    {
+      "name": "logs",
+      "type": "logs_exists",
+      "mode": "profile"
+    },
+    {
+      "name": "php_availability",
+      "type": "php_availability",
+      "mode": "profile"
     },
     {
       "name": "composer_availability",
       "type": "composer_availability",
-      "mode": "mock"
+      "mode": "profile"
     },
     {
       "name": "drush_availability",
       "type": "drush_availability",
-      "mode": "mock"
+      "mode": "profile"
     },
     {
-      "name": "writable_directories",
-      "type": "writable_directories",
-      "mode": "mock"
+      "name": "writable_release_root",
+      "type": "writable_release_root",
+      "mode": "profile"
     },
     {
       "name": "directory_layout",
       "type": "directory_layout",
-      "mode": "mock"
+      "mode": "profile"
     },
     {
-      "name": "required_symlinks",
-      "type": "required_symlinks",
-      "mode": "mock"
-    },
-    {
-      "name": "disk_space",
-      "type": "disk_space",
-      "mode": "mock"
-    },
-    {
-      "name": "permissions",
-      "type": "permissions",
-      "mode": "mock"
+      "name": "readable_shared_resources",
+      "type": "readable_shared_resources",
+      "mode": "profile"
     }
   ]
 }

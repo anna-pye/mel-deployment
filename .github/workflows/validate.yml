@@ -50,6 +50,15 @@ jobs:
           deploy/bin/mel doctor staging --json
           deploy/bin/mel doctor production --json
 
+      - name: Verify staging layout
+        run: deploy/bin/mel verify staging --check layout --json
+
+      - name: Verify staging health
+        run: deploy/bin/mel verify staging --check health --json
+
+      - name: Generate staging readiness report
+        run: deploy/bin/mel report staging
+
       - name: Validate staging executor dry-run
         run: deploy/bin/mel execute staging --dry-run
 

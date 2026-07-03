@@ -17,6 +17,12 @@ Dry Run
     ↓
 Doctor
     ↓
+Health
+    ↓
+Layout Verification
+    ↓
+Report
+    ↓
 Staging Executor
     ↓
 Rollback when post-switch validation fails
@@ -30,8 +36,10 @@ Rollback when post-switch validation fails
 - Planner converts the resolved model into a deterministic execution plan.
 - Policy evaluates whether the plan is allowed, warning, or blocked.
 - Dry Run renders the plan as human-readable simulation text.
-- Doctor validates read-only environment check contracts in mock mode.
-- Health evaluates supplied health state before and after release activity.
+- Doctor validates profile-driven read-only environment checks.
+- Health evaluates profile-configured health state before and after release activity.
+- Layout verification validates required staging paths and shared resources without repair.
+- Report summarises deployment readiness and blocking reasons.
 - Executor prepares staging releases, invokes mock plugins, switches `current` atomically, and writes release logs.
 - Rollback restores the previous `current` symlink after post-switch validation failure.
 

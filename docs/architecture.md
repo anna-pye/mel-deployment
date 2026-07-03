@@ -12,7 +12,7 @@ mel-deployment implements local validation, resolution, planner, policy, dry-run
 
 ## Components
 
-- `deploy/bin/mel` routes `validate`, `resolve`, `plan`, `policy`, `dry-run`, `doctor`, `execute`, `info`, and `version` subcommands.
+- `deploy/bin/mel` routes `validate`, `resolve`, `plan`, `policy`, `dry-run`, `doctor`, `verify`, `report`, `execute`, `info`, and `version` subcommands.
 - `deploy/lib/common.sh` provides shared repository, usage, and version helpers.
 - `deploy/lib/errors.sh` defines status names, error codes, and exit codes.
 - `deploy/lib/output.sh` formats command results and details.
@@ -25,6 +25,7 @@ mel-deployment implements local validation, resolution, planner, policy, dry-run
 - `deploy/lib/dryrun.sh` renders a plan as simulation text without executing it.
 - `deploy/lib/doctor.sh` validates mock doctor contracts for staging and production.
 - `deploy/lib/health.sh` evaluates supplied health state for supported checks.
+- `deploy/lib/readiness.sh` validates staging profile, layout, health, and deployment readiness reports.
 - `deploy/lib/plugins.sh` validates non-executable plugin interface contracts.
 - `deploy/lib/executor.sh` orchestrates the staging deployment pipeline.
 - `deploy/lib/releases.sh` prepares releases, verifies layout, and links shared resources.
@@ -95,9 +96,6 @@ Resolution
 Planner
     ↓
 Policy
-    ↓
-Dry Run
-    ↓
 Doctor
     ↓
 Health
@@ -109,13 +107,24 @@ Staging Executor
 Rollback when post-switch validation fails
 ```
 
-Policy evaluates environment, local repository state, deployment profile, approvals, validation success, and planner success. Dry-run renders the plan only. Doctor validates mock check definitions only. Health checks evaluate supplied state only. The staging executor reuses those layers before preparing a release.
+Policy evaluates environment, local repository state, deployment profile, approvals, validation success, and planner success. Dry-run renders the plan only. Doctor validates profile-driven check definitions and can perform read-only SSH checks when the profile opts into them. Health checks are read from the profile and evaluated without hardcoded URLs. Layout verification returns structured failures and never repairs. The staging executor reuses those layers before preparing a release.
 
 ## Staging Executor Flow
 
 `mel execute staging` supports only `/home/mel/staging` outside test mode. It verifies the required `repo/`, `releases/`, `shared/`, `current`, and `logs/` layout before mutation.
 
 The executor creates `releases/<release-id>/`, copies runtime repository contents from `repo/`, links profile-defined shared resources, invokes mock plugins for Composer, Drush, health, shared resources, and current switching, writes `release.json`, writes `logs/<release-id>.deployment.json`, and switches `current` atomically only after all pre-switch checks pass.
+
+## Staging Verification Flow
+
+`mel verify staging` is read-only. It validates:
+
+1. Staging profile structure.
+2. Configured layout paths.
+3. Required shared resources.
+4. Configured health checks.
+
+`mel report staging` combines validation, resolution, planner, policy, doctor, health, and layout results into a deployment readiness report. Deployment readiness is `READY` only when every blocking check passes.
 
 If post-switch validation fails, rollback restores the previous `current` symlink and records `logs/<release-id>.rollback.json`.
 
