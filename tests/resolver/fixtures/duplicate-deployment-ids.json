@@ -1,0 +1,22 @@
+{
+  "schema": "mel-deployment.manifest.v1",
+  "name": "hold-production",
+  "repository": {
+    "name": "Mel_hold",
+    "root": "/example/mel/hold-production",
+    "url": "git@github.com:anna-pye/Mel_hold.git"
+  },
+  "environment": "production",
+  "release": {
+    "identifier": "20260703153045"
+  },
+  "paths": {},
+  "deployments": [
+    {
+      "name": "hold-production"
+    },
+    {
+      "deployment_id": "hold-production"
+    }
+  ]
+}

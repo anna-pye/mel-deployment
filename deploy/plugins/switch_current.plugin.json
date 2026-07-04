@@ -1,0 +1,12 @@
+{
+  "name": "switch-current-contract",
+  "type": "switch_current",
+  "executes": false,
+  "inputs": [
+    "execution_plan",
+    "deployment_profile"
+  ],
+  "outputs": [
+    "switch_current_contract"
+  ]
+}

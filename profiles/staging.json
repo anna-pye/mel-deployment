@@ -1,0 +1,172 @@
+{
+  "profile": "staging",
+  "profile_version": "1",
+  "environment": "staging",
+  "validation_profile": "staging",
+  "policy_profile": "staging",
+  "deployment_root": "/home/mel/staging",
+  "repository": "git@github.com:anna-pye/myeventlane-platform.git",
+  "repository_path": "/home/mel/staging-repo",
+  "ssh": {
+    "host": "myeventlane",
+    "user": "mel"
+  },
+  "paths": {
+    "releases": "/home/mel/staging/releases",
+    "shared": "/home/mel/staging/shared",
+    "current": "/home/mel/staging/current",
+    "logs": "/home/mel/staging/logs"
+  },
+  "executables": {
+    "php": "php",
+    "composer": "composer",
+    "drush": "drush"
+  },
+  "verification": {
+    "mode": "ssh"
+  },
+  "health_endpoints": [],
+  "required_approvals": [],
+  "shared_resources": [],
+  "plugins": {
+    "composer": {
+      "mode": "mock",
+      "status": "passed"
+    },
+    "drush": {
+      "mode": "mock",
+      "status": "passed",
+      "operations": [
+        "updatedb",
+        "cache_rebuild"
+      ]
+    },
+    "health": {
+      "mode": "mock",
+      "status": "passed"
+    },
+    "shared": {
+      "mode": "mock",
+      "status": "passed"
+    },
+    "switch_current": {
+      "mode": "mock",
+      "status": "passed"
+    }
+  },
+  "health_checks": [
+    {
+      "name": "staging_http_response",
+      "type": "http_response",
+      "required": true
+    },
+    {
+      "name": "staging_drupal_status",
+      "type": "drupal_status_endpoint",
+      "required": true
+    },
+    {
+      "name": "staging_root",
+      "type": "directory_exists",
+      "path": "/home/mel/staging",
+      "required": true
+    }
+  ],
+  "doctor_checks": [
+    {
+      "name": "ssh_connectivity",
+      "type": "ssh_connectivity",
+      "mode": "ssh"
+    },
+    {
+      "name": "remote_hostname",
+      "type": "remote_hostname",
+      "mode": "ssh"
+    },
+    {
+      "name": "remote_user",
+      "type": "remote_user",
+      "mode": "ssh"
+    },
+    {
+      "name": "deployment_root",
+      "type": "deployment_root_exists",
+      "mode": "ssh"
+    },
+    {
+      "name": "repo",
+      "type": "repo_exists",
+      "mode": "ssh"
+    },
+    {
+      "name": "release_integrity",
+      "type": "release_integrity",
+      "mode": "ssh"
+    },
+    {
+      "name": "drupal_bootstrap",
+      "type": "drupal_bootstrap",
+      "mode": "ssh"
+    },
+    {
+      "name": "releases",
+      "type": "releases_exists",
+      "mode": "ssh"
+    },
+    {
+      "name": "shared",
+      "type": "shared_exists",
+      "mode": "ssh"
+    },
+    {
+      "name": "current",
+      "type": "current_exists",
+      "mode": "ssh"
+    },
+    {
+      "name": "current_target",
+      "type": "current_target_exists",
+      "mode": "ssh"
+    },
+    {
+      "name": "logs",
+      "type": "logs_exists",
+      "mode": "ssh"
+    },
+    {
+      "name": "php_availability",
+      "type": "php_availability",
+      "mode": "ssh"
+    },
+    {
+      "name": "composer_availability",
+      "type": "composer_availability",
+      "mode": "ssh"
+    },
+    {
+      "name": "drush_availability",
+      "type": "drush_availability",
+      "mode": "ssh"
+    },
+    {
+      "name": "writable_release_root",
+      "type": "writable_release_root",
+      "mode": "ssh"
+    },
+    {
+      "name": "directory_layout",
+      "type": "directory_layout",
+      "mode": "ssh"
+    },
+    {
+      "name": "readable_shared_resources",
+      "type": "readable_shared_resources",
+      "mode": "ssh"
+    },
+    {
+      "name": "disk_space",
+      "type": "disk_space",
+      "mode": "ssh"
+    }
+  ]
+}

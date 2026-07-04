@@ -1,0 +1,7 @@
+{
+  "deployment_id": "hold-production",
+  "repository": {
+    "url": "git@github.com:anna-pye/Mel_hold.git",
+    "branch": "main"
+  }
+}

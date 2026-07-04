@@ -1,0 +1,21 @@
+{
+  "schema": "mel-deployment.manifest.v1",
+  "name": "hold-production",
+  "repository": {
+    "name": "Mel_hold",
+    "root": "/example/mel/hold-production",
+    "url": "git@github.com:anna-pye/Mel_hold.git",
+    "branch": "main"
+  },
+  "environment": "production",
+  "release": {
+    "strategy": "timestamp",
+    "identifier": "20260703153045"
+  },
+  "paths": {
+    "release_root": "/example/mel/hold-production/releases",
+    "shared_root": "/example/mel/hold-production/shared",
+    "current_link": "/example/mel/hold-production/current"
+  },
+  "validation_profile": "production"
+}

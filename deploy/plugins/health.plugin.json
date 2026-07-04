@@ -1,0 +1,13 @@
+{
+  "name": "health-contract",
+  "type": "health",
+  "executes": false,
+  "inputs": [
+    "execution_plan",
+    "deployment_profile",
+    "health_check_state"
+  ],
+  "outputs": [
+    "health_result_contract"
+  ]
+}

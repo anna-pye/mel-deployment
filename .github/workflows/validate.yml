@@ -1,0 +1,70 @@
+# Validation-only workflow.
+# This workflow must not deploy, access servers, or run deployment tooling that changes state.
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Validate repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check shell syntax
+        run: |
+          bash -n deploy/lib/*.sh
+          bash -n deploy/bin/*
+
+      - name: Run unit tests
+        run: bash tests/run-tests.sh
+
+      - name: Validate manifest schema
+        run: deploy/bin/mel validate
+
+      - name: Resolve example manifest
+        run: deploy/bin/mel resolve --manifest examples/hold-production.yml
+
+      - name: Plan example manifest
+        run: deploy/bin/mel plan --manifest examples/hold-production.yml
+
+      - name: Evaluate example policy
+        run: |
+          deploy/bin/mel policy \
+            --manifest examples/hold-production.yml \
+            --repository-state clean \
+            --approval business \
+            --approval technical \
+            --approval release_manager
+
+      - name: Dry-run example manifest
+        run: deploy/bin/mel dry-run --manifest examples/hold-production.yml
+
+      - name: Run mock doctor checks
+        run: |
+          deploy/bin/mel doctor staging --json
+          deploy/bin/mel doctor production --json
+
+      - name: Verify staging layout
+        run: deploy/bin/mel verify staging --check layout --json
+
+      - name: Verify staging health
+        run: deploy/bin/mel verify staging --check health --json
+
+      - name: Generate staging readiness report
+        run: deploy/bin/mel report staging
+
+      - name: Validate staging executor dry-run
+        run: deploy/bin/mel execute staging --dry-run
+
+      - name: Confirm production execution is forbidden
+        run: |
+          if deploy/bin/mel execute production; then
+            echo "production execution unexpectedly succeeded"
+            exit 1
+          fi

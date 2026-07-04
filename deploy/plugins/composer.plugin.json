@@ -1,0 +1,12 @@
+{
+  "name": "composer-contract",
+  "type": "composer",
+  "executes": false,
+  "inputs": [
+    "execution_plan",
+    "deployment_profile"
+  ],
+  "outputs": [
+    "composer_operation_contract"
+  ]
+}
